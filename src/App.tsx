@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import Login from './components/Login'
 import CompanySearch from './components/CompanySearch'
-import CompanyDetails from './components/CompanyDetails'
 import ProductSearch from './components/ProductSearch'
 import DraftOrderPanel from './components/DraftOrderPanel'
 import SavedDrafts from './components/SavedDrafts'
@@ -139,7 +138,7 @@ export default function App() {
               alt="Imagine Fashion"
               className="h-8"
             />
-            <span className="text-white text-sm font-medium">Sales Agent</span>
+            <span className="text-white text-sm font-medium">Sales Agent App</span>
           </div>
           <button
             onClick={() => {
@@ -175,18 +174,44 @@ export default function App() {
           />
         ) : (
           <>
-            <CompanySearch
-              onSelect={(loc) => {
-                setSelectedLocation(loc)
-                setLineItems([])
-                setSuccessMessage('')
-              }}
-              onViewDrafts={() => setView('drafts')}
-            />
-
-            {selectedLocation && (
+            {!selectedLocation ? (
               <>
-                <CompanyDetails location={selectedLocation} />
+                <CompanySearch
+                  onSelect={(loc) => {
+                    setSelectedLocation(loc)
+                    setLineItems([])
+                    setSuccessMessage('')
+                  }}
+                  onViewDrafts={() => setView('drafts')}
+                />
+                <div className="bg-white rounded-xl shadow-sm p-6">
+                  <p className="text-sm text-gray-500">
+                    Search and select a company location to begin creating an order
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="bg-white rounded-xl shadow-sm px-5 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                      <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-gray-900 text-sm">{selectedLocation.companyName}</div>
+                      <div className="text-xs text-gray-500">{selectedLocation.locationName}{selectedLocation.address ? ` · ${selectedLocation.address}` : ''}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={startAgain}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                  >
+                    Change Company
+                  </button>
+                </div>
+
                 <ProductSearch
                   companyLocationId={selectedLocation.id}
                   onAddToOrder={handleAddToOrder}
@@ -202,14 +227,6 @@ export default function App() {
                   saving={saving}
                 />
               </>
-            )}
-
-            {!selectedLocation && (
-              <div className="bg-white rounded-xl shadow-sm p-6">
-                <p className="text-sm text-gray-500">
-                  Search and select a company location to begin creating an order
-                </p>
-              </div>
             )}
           </>
         )}
