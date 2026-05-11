@@ -181,38 +181,36 @@ export default function DraftOrderPanel({
             </span>
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="space-y-2">
             <button
-              onClick={onStartAgain}
-              className="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1"
+              onClick={() => onCreateDraftOrder(notes, shippingMethod)}
+              disabled={creating}
+              className="w-full px-4 py-2.5 text-sm bg-primary text-white rounded-lg hover:bg-primary-dark disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5 font-medium"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              {creating ? 'Creating...' : 'Create Draft Order'}
+            </button>
+            <button
+              onClick={() => onSaveDraft(notes, shippingMethod)}
+              disabled={saving}
+              className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+              </svg>
+              {saving ? 'Saving...' : 'Save Draft for Later'}
+            </button>
+            <button
+              onClick={onStartAgain}
+              className="w-full text-sm text-gray-500 hover:text-gray-700 py-1 flex items-center justify-center gap-1"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               Start Again
             </button>
-            <div className="flex gap-2">
-              <button
-                onClick={() => onSaveDraft(notes, shippingMethod)}
-                disabled={saving}
-                className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                </svg>
-                {saving ? 'Saving...' : 'Save Draft for Later'}
-              </button>
-              <button
-                onClick={() => onCreateDraftOrder(notes, shippingMethod)}
-                disabled={creating}
-                className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary-dark disabled:opacity-50 transition-colors flex items-center gap-1.5"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                {creating ? 'Creating...' : 'Create Draft Order'}
-              </button>
-            </div>
           </div>
         </>
       )}

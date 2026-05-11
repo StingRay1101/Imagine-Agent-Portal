@@ -131,7 +131,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-black px-6 py-3">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="mx-auto flex items-center justify-between max-w-[1600px]">
           <div className="flex items-center gap-3">
             <img
               src="https://cdn.shopify.com/s/files/1/2724/6858/files/White_Logo_Wholesale.png?v=1738893136"
@@ -152,9 +152,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-6 space-y-4">
+      <main className="mx-auto p-6 max-w-[1600px]">
         {successMessage && (
-          <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center justify-between">
+          <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center justify-between mb-4">
             <span className="text-sm text-green-800">{successMessage}</span>
             <button
               onClick={() => setSuccessMessage('')}
@@ -175,7 +175,7 @@ export default function App() {
         ) : (
           <>
             {!selectedLocation ? (
-              <>
+              <div className="max-w-3xl mx-auto space-y-4">
                 <CompanySearch
                   onSelect={(loc) => {
                     setSelectedLocation(loc)
@@ -189,10 +189,10 @@ export default function App() {
                     Search and select a company location to begin creating an order
                   </p>
                 </div>
-              </>
+              </div>
             ) : (
               <>
-                <div className="bg-white rounded-xl shadow-sm px-5 py-3 flex items-center justify-between">
+                <div className="bg-white rounded-xl shadow-sm px-5 py-3 flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
                       <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -212,20 +212,26 @@ export default function App() {
                   </button>
                 </div>
 
-                <ProductSearch
-                  companyLocationId={selectedLocation.id}
-                  onAddToOrder={handleAddToOrder}
-                />
-                <DraftOrderPanel
-                  lineItems={lineItems}
-                  onUpdateQuantity={updateQuantity}
-                  onRemoveItem={removeItem}
-                  onCreateDraftOrder={handleCreateDraftOrder}
-                  onSaveDraft={handleSaveDraft}
-                  onStartAgain={startAgain}
-                  creating={creating}
-                  saving={saving}
-                />
+                <div className="flex gap-6 items-start">
+                  <div className="flex-1 min-w-0">
+                    <ProductSearch
+                      companyLocationId={selectedLocation.id}
+                      onAddToOrder={handleAddToOrder}
+                    />
+                  </div>
+                  <div className="w-[420px] shrink-0 sticky top-6">
+                    <DraftOrderPanel
+                      lineItems={lineItems}
+                      onUpdateQuantity={updateQuantity}
+                      onRemoveItem={removeItem}
+                      onCreateDraftOrder={handleCreateDraftOrder}
+                      onSaveDraft={handleSaveDraft}
+                      onStartAgain={startAgain}
+                      creating={creating}
+                      saving={saving}
+                    />
+                  </div>
+                </div>
               </>
             )}
           </>
