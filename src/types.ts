@@ -1,6 +1,7 @@
 export interface CompanyLocation {
   id: string
   companyId: string
+  companyContactId: string
   companyName: string
   locationName: string
   address: string
@@ -36,6 +37,9 @@ export interface DraftOrder {
   id: string
   name: string
   createdAt: string
+  companyLocationId: string
+  companyId: string
+  companyContactId: string
   companyName: string
   locationName: string
   lineItems: OrderLineItem[]

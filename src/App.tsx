@@ -64,6 +64,8 @@ export default function App() {
     try {
       const result = await createDraftOrder({
         companyLocationId: selectedLocation.id,
+        companyId: selectedLocation.companyId,
+        companyContactId: selectedLocation.companyContactId,
         lineItems: lineItems.map((li) => ({
           variantId: li.variantId,
           quantity: li.quantity,
@@ -85,6 +87,8 @@ export default function App() {
     try {
       await saveDraft({
         companyLocationId: selectedLocation.id,
+        companyId: selectedLocation.companyId,
+        companyContactId: selectedLocation.companyContactId,
         companyName: selectedLocation.companyName,
         locationName: selectedLocation.locationName,
         lineItems,
@@ -100,8 +104,9 @@ export default function App() {
 
   function handleResumeDraft(draft: DraftOrder) {
     setSelectedLocation({
-      id: draft.id,
-      companyId: '',
+      id: draft.companyLocationId || draft.id,
+      companyId: draft.companyId || '',
+      companyContactId: draft.companyContactId || '',
       companyName: draft.companyName,
       locationName: draft.locationName,
       address: '',

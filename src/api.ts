@@ -69,6 +69,8 @@ export async function getOrderHistory(
 
 export async function createDraftOrder(order: {
   companyLocationId: string
+  companyId: string
+  companyContactId: string
   lineItems: { variantId: string; quantity: number }[]
   notes: string
   shippingMethod: string
@@ -82,6 +84,8 @@ export async function createDraftOrder(order: {
 export async function saveDraft(draft: {
   id?: string
   companyLocationId: string
+  companyId: string
+  companyContactId: string
   companyName: string
   locationName: string
   lineItems: { variantId: string; title: string; sku: string; price: number; gst: number; quantity: number; imageUrl: string | null }[]

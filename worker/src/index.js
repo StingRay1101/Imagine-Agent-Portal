@@ -167,6 +167,13 @@ async function handleSearchCompanies(env, url) {
                 }
               }
             }
+            contacts(first: 1) {
+              edges {
+                node {
+                  id
+                }
+              }
+            }
           }
         }
       }
@@ -178,6 +185,7 @@ async function handleSearchCompanies(env, url) {
 
   for (const companyEdge of data.companies.edges) {
     const company = companyEdge.node;
+    const contactId = company.contacts?.edges?.[0]?.node?.id || '';
 
     for (const locEdge of company.locations.edges) {
       const loc = locEdge.node;
@@ -187,6 +195,7 @@ async function handleSearchCompanies(env, url) {
       results.push({
         id: loc.id,
         companyId: company.id,
+        companyContactId: contactId,
         companyName: company.name,
         locationName: loc.name,
         address: addressParts.join(', '),
@@ -324,7 +333,7 @@ async function handleGetOrders(env, url) {
 
 async function handleCreateDraftOrder(env, request) {
   const body = await request.json();
-  const { companyLocationId, lineItems, notes, shippingMethod } = body;
+  const { companyLocationId, companyId, companyContactId, lineItems, notes, shippingMethod } = body;
 
   if (!companyLocationId || !lineItems?.length) {
     return error('Missing companyLocationId or lineItems', 400);
@@ -361,6 +370,8 @@ async function handleCreateDraftOrder(env, request) {
   const input = {
     purchasingEntity: {
       purchasingCompany: {
+        companyId,
+        companyContactId,
         companyLocationId,
       },
     },
