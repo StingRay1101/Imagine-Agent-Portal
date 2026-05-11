@@ -1,0 +1,7 @@
+name = "agent-portal-worker"
+main = "src/index.js"
+compatibility_date = "2024-10-01"
+
+[[kv_namespaces]]
+binding = "DRAFT_STORE"
+id = "a40ab6442b004abf858e1edd00b7b2c7"
