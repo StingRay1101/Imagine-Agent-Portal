@@ -4,8 +4,8 @@ import CompanySearch from './components/CompanySearch'
 import ProductSearch from './components/ProductSearch'
 import DraftOrderPanel from './components/DraftOrderPanel'
 import SavedDrafts from './components/SavedDrafts'
-import { verifyPassword, createDraftOrder, saveDraft } from './api'
-import type { CompanyLocation, OrderLineItem, ShippingMethod, DraftOrder } from './types'
+import { verifyPassword, createDraftOrder, saveDraft, getOrderHistory } from './api'
+import type { CompanyLocation, OrderLineItem, ShippingMethod, DraftOrder, Order } from './types'
 
 type View = 'main' | 'drafts'
 
@@ -17,6 +17,9 @@ export default function App() {
   const [creating, setCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
+  const [showOrderHistory, setShowOrderHistory] = useState(false)
+  const [orders, setOrders] = useState<Order[]>([])
+  const [loadingOrders, setLoadingOrders] = useState(false)
 
   useEffect(() => {
     const pw = localStorage.getItem('portal_password')
@@ -55,6 +58,22 @@ export default function App() {
     setSelectedLocation(null)
     setLineItems([])
     setSuccessMessage('')
+    setShowOrderHistory(false)
+    setOrders([])
+  }
+
+  async function toggleOrderHistory() {
+    if (!showOrderHistory && orders.length === 0 && selectedLocation) {
+      setLoadingOrders(true)
+      try {
+        const data = await getOrderHistory(selectedLocation.companyId)
+        setOrders(data)
+      } catch {
+        setOrders([])
+      }
+      setLoadingOrders(false)
+    }
+    setShowOrderHistory(!showOrderHistory)
   }
 
   async function handleCreateDraftOrder(notes: string, shippingMethod: ShippingMethod) {
@@ -192,24 +211,103 @@ export default function App() {
               </div>
             ) : (
               <>
-                <div className="bg-white rounded-xl shadow-sm px-5 py-3 flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                      <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
+                <div className="bg-white rounded-xl shadow-sm mb-4">
+                  <div className="px-5 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-900 text-sm">{selectedLocation.companyName}</div>
+                        <div className="text-xs text-gray-500">{selectedLocation.locationName}{selectedLocation.address ? ` · ${selectedLocation.address}` : ''}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="font-semibold text-gray-900 text-sm">{selectedLocation.companyName}</div>
-                      <div className="text-xs text-gray-500">{selectedLocation.locationName}{selectedLocation.address ? ` · ${selectedLocation.address}` : ''}</div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={toggleOrderHistory}
+                        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        Order History
+                      </button>
+                      <span className="text-gray-300">|</span>
+                      <button
+                        onClick={startAgain}
+                        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                      >
+                        Change Company
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={startAgain}
-                    className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
-                  >
-                    Change Company
-                  </button>
+
+                  {showOrderHistory && (
+                    <div className="border-t border-gray-200 px-5 py-4">
+                      {loadingOrders ? (
+                        <div className="text-sm text-gray-500">Loading orders...</div>
+                      ) : orders.length === 0 ? (
+                        <div className="text-sm text-gray-500">No order history found</div>
+                      ) : (
+                        <div className="border border-gray-200 rounded-lg overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Order</th>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Date</th>
+                                <th className="px-3 py-2 text-right font-medium text-gray-600">Total</th>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Payment</th>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Fulfillment</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {orders.map((order) => {
+                                const numericId = order.id.split('/').pop()
+                                return (
+                                  <tr key={order.id}>
+                                    <td className="px-3 py-2">
+                                      <a
+                                        href={`https://admin.shopify.com/store/imagine-retail/orders/${numericId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-indigo-600 hover:text-indigo-800 font-medium"
+                                      >
+                                        {order.name}
+                                      </a>
+                                    </td>
+                                    <td className="px-3 py-2 text-gray-600">
+                                      {new Date(order.createdAt).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-gray-900">${order.totalPrice}</td>
+                                    <td className="px-3 py-2">
+                                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                                        order.financialStatus === 'paid'
+                                          ? 'bg-green-100 text-green-800'
+                                          : 'bg-yellow-100 text-yellow-800'
+                                      }`}>
+                                        {order.financialStatus}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                                        order.fulfillmentStatus === 'fulfilled'
+                                          ? 'bg-green-100 text-green-800'
+                                          : 'bg-gray-100 text-gray-800'
+                                      }`}>
+                                        {order.fulfillmentStatus}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-6 items-start">
@@ -219,7 +317,7 @@ export default function App() {
                       onAddToOrder={handleAddToOrder}
                     />
                   </div>
-                  <div className="w-[420px] shrink-0 sticky top-6">
+                  <div className="w-[420px] shrink-0 sticky top-6 max-h-[calc(100vh-4rem)] overflow-y-auto">
                     <DraftOrderPanel
                       lineItems={lineItems}
                       onUpdateQuantity={updateQuantity}
