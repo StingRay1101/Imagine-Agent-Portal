@@ -410,6 +410,7 @@ async function handleCreateDraftOrder(env, request) {
       quantity: li.quantity,
     })),
     note: noteLines.join('\n'),
+    tags: ['Sales Agent App'],
   };
 
   const data = await shopifyGraphQL(env, gql, { input });
