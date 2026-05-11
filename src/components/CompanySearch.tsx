@@ -25,7 +25,8 @@ export default function CompanySearch({ onSelect, onViewDrafts }: Props) {
       try {
         const data = await searchCompanyLocations(value)
         setResults(data)
-      } catch {
+      } catch (err) {
+        console.error('Company search error:', err)
         setResults([])
       }
       setSearching(false)

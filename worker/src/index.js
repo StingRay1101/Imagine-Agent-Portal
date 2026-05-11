@@ -4,6 +4,10 @@ let cachedToken = null;
 let tokenExpiry = 0;
 
 async function getAccessToken(env) {
+  // Use direct access token if available (simplest approach)
+  if (env.SHOPIFY_ACCESS_TOKEN) return env.SHOPIFY_ACCESS_TOKEN;
+
+  // Fallback to client credentials OAuth
   const now = Date.now();
   if (cachedToken && now < tokenExpiry) return cachedToken;
 
@@ -97,6 +101,35 @@ async function handlePing() {
   return json({ ok: true });
 }
 
+async function handleDebugAuth(env) {
+  try {
+    const tokenUrl = `https://${env.SHOPIFY_STORE}/admin/oauth/access_token`;
+    const body = {
+      client_id: env.SHOPIFY_CLIENT_ID,
+      client_secret: env.SHOPIFY_CLIENT_SECRET,
+      grant_type: 'client_credentials',
+    };
+    const res = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    return json({
+      debug: true,
+      tokenUrl,
+      clientIdSet: !!env.SHOPIFY_CLIENT_ID,
+      clientSecretSet: !!env.SHOPIFY_CLIENT_SECRET,
+      storeSet: !!env.SHOPIFY_STORE,
+      store: env.SHOPIFY_STORE,
+      httpStatus: res.status,
+      response: text,
+    });
+  } catch (err) {
+    return json({ debug: true, error: err.message });
+  }
+}
+
 async function handleSearchCompanies(env, url) {
   const query = url.searchParams.get('q') || '';
   if (!query) return json([]);
@@ -134,17 +167,6 @@ async function handleSearchCompanies(env, url) {
                 }
               }
             }
-            contacts(first: 5) {
-              edges {
-                node {
-                  customer {
-                    firstName
-                    lastName
-                    email
-                  }
-                }
-              }
-            }
           }
         }
       }
@@ -156,7 +178,6 @@ async function handleSearchCompanies(env, url) {
 
   for (const companyEdge of data.companies.edges) {
     const company = companyEdge.node;
-    const contact = company.contacts?.edges?.[0]?.node?.customer;
 
     for (const locEdge of company.locations.edges) {
       const loc = locEdge.node;
@@ -169,8 +190,8 @@ async function handleSearchCompanies(env, url) {
         companyName: company.name,
         locationName: loc.name,
         address: addressParts.join(', '),
-        contactName: contact ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim() : '',
-        contactEmail: contact?.email || '',
+        contactName: '',
+        contactEmail: '',
       });
     }
   }
@@ -429,22 +450,24 @@ export default {
     const path = url.pathname;
 
     if (path === '/api/health') return json({ status: 'ok' });
+    if (path === '/api/debug-auth') return await handleDebugAuth(env);
 
     if (!isAuthorized(request, env)) {
+
       return error('Unauthorized', 401);
     }
 
     try {
       if (path === '/api/ping') return handlePing();
-      if (path === '/api/companies' && request.method === 'GET') return handleSearchCompanies(env, url);
-      if (path === '/api/products' && request.method === 'GET') return handleSearchProducts(env, url);
-      if (path === '/api/orders' && request.method === 'GET') return handleGetOrders(env, url);
-      if (path === '/api/draft-orders' && request.method === 'POST') return handleCreateDraftOrder(env, request);
-      if (path === '/api/drafts' && request.method === 'POST') return handleSaveDraft(env, request);
-      if (path === '/api/drafts' && request.method === 'GET') return handleGetDrafts(env);
+      if (path === '/api/companies' && request.method === 'GET') return await handleSearchCompanies(env, url);
+      if (path === '/api/products' && request.method === 'GET') return await handleSearchProducts(env, url);
+      if (path === '/api/orders' && request.method === 'GET') return await handleGetOrders(env, url);
+      if (path === '/api/draft-orders' && request.method === 'POST') return await handleCreateDraftOrder(env, request);
+      if (path === '/api/drafts' && request.method === 'POST') return await handleSaveDraft(env, request);
+      if (path === '/api/drafts' && request.method === 'GET') return await handleGetDrafts(env);
       if (path.startsWith('/api/drafts/') && request.method === 'DELETE') {
         const draftId = decodeURIComponent(path.split('/api/drafts/')[1]);
-        return handleDeleteDraft(env, draftId);
+        return await handleDeleteDraft(env, draftId);
       }
 
       return error('Not found', 404);
