@@ -131,15 +131,22 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="bg-white border-b border-gray-200 px-6 py-3">
+      <header className="bg-black px-6 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <h1 className="text-lg font-bold text-gray-900">Sales Agent</h1>
+          <div className="flex items-center gap-3">
+            <img
+              src="https://cdn.shopify.com/s/files/1/2724/6858/files/White_Logo_Wholesale.png?v=1738893136"
+              alt="Imagine Fashion"
+              className="h-8"
+            />
+            <span className="text-white text-sm font-medium">Sales Agent</span>
+          </div>
           <button
             onClick={() => {
               localStorage.removeItem('portal_password')
               setAuthenticated(false)
             }}
-            className="text-sm text-gray-500 hover:text-gray-700"
+            className="text-sm text-gray-400 hover:text-white"
           >
             Sign Out
           </button>
