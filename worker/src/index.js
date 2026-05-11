@@ -333,10 +333,40 @@ async function handleGetOrders(env, url) {
 
 async function handleCreateDraftOrder(env, request) {
   const body = await request.json();
-  const { companyLocationId, companyId, companyContactId, lineItems, notes, shippingMethod } = body;
+  const { companyLocationId, lineItems, notes, shippingMethod } = body;
 
   if (!companyLocationId || !lineItems?.length) {
     return error('Missing companyLocationId or lineItems', 400);
+  }
+
+  // Look up companyId and companyContactId from the location
+  const lookupGql = `
+    query LookupLocation($locationId: ID!) {
+      companyLocation(id: $locationId) {
+        company {
+          id
+          contacts(first: 1) {
+            edges {
+              node {
+                id
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const lookupData = await shopifyGraphQL(env, lookupGql, { locationId: companyLocationId });
+  const company = lookupData.companyLocation?.company;
+  if (!company) {
+    return error('Company not found for this location', 400);
+  }
+
+  const companyId = company.id;
+  const companyContactId = company.contacts?.edges?.[0]?.node?.id;
+  if (!companyContactId) {
+    return error('No contact found for this company', 400);
   }
 
   const shippingLabels = {
