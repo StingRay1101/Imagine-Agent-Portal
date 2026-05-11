@@ -45,14 +45,21 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
     setQuantities((prev) => ({ ...prev, [variantId]: Math.max(1, qty) }))
   }
 
+  function getWholesalePricing(retailPrice: number) {
+    const wholesaleIncGst = Math.round(retailPrice * 0.35 * 100) / 100
+    const priceExGst = Math.round((wholesaleIncGst / 1.1) * 100) / 100
+    const gst = Math.round((wholesaleIncGst - priceExGst) * 100) / 100
+    return { priceExGst, gst, wholesaleIncGst }
+  }
+
   function addToOrder(variant: ProductVariant) {
-    const price = parseFloat(variant.price)
-    const gst = Math.round(price * 0.1 * 100) / 100
+    const retail = parseFloat(variant.price)
+    const { priceExGst, gst } = getWholesalePricing(retail)
     onAddToOrder({
       variantId: variant.id,
       title: variant.productTitle + (variant.title !== 'Default Title' ? ` - ${variant.title}` : ''),
       sku: variant.sku,
-      price,
+      price: priceExGst,
       gst,
       quantity: quantities[variant.id] || 1,
       imageUrl: variant.imageUrl,
@@ -93,8 +100,8 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
       {results.length > 0 && (
         <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {results.map((variant) => {
-            const price = parseFloat(variant.price)
-            const gst = Math.round(price * 0.1 * 100) / 100
+            const retail = parseFloat(variant.price)
+            const { priceExGst, gst } = getWholesalePricing(retail)
             return (
               <div
                 key={variant.id}
@@ -121,10 +128,10 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
                   SKU: {variant.sku || '—'}
                 </div>
                 <div className="text-sm font-semibold text-gray-900">
-                  AUD {price.toFixed(2)} <span className="font-normal text-gray-500">(ex GST)</span>
+                  ${priceExGst.toFixed(2)} <span className="font-normal text-gray-500">(ex GST)</span>
                 </div>
                 <div className="text-xs text-gray-500 mb-2">
-                  GST: AUD {gst.toFixed(2)}
+                  + GST: ${gst.toFixed(2)}
                 </div>
                 <div className="mb-3">
                   {variant.available ? (
