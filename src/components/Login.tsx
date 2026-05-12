@@ -59,7 +59,7 @@ export default function Login({ onLogin, onAdminLogin }: Props) {
           />
         </div>
         <h1 className="text-2xl font-bold text-center mb-1">
-          {mode === 'admin' ? 'Staff Login' : 'Sales Agent Portal'}
+          {mode === 'admin' ? 'Imagine Login' : 'Sales Agent Portal'}
         </h1>
         <p className="text-center text-gray-500 text-sm mb-6">Imagine Fashion</p>
         <form onSubmit={handleSubmit}>
@@ -92,7 +92,7 @@ export default function Login({ onLogin, onAdminLogin }: Props) {
               onClick={() => switchMode('admin')}
               className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
             >
-              Staff Login →
+              Imagine Login →
             </button>
           ) : (
             <button
