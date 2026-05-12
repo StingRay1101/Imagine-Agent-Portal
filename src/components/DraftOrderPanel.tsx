@@ -187,10 +187,14 @@ export default function DraftOrderPanel({
             </div>
           </div>
 
+          {!shippingMethod && (
+            <p className="text-xs text-amber-600 mb-2">Please select a shipping method to create a draft order.</p>
+          )}
+
           <div className="space-y-2">
             <button
               onClick={() => onCreateDraftOrder(notes, shippingMethod)}
-              disabled={creating}
+              disabled={creating || !shippingMethod}
               className="w-full px-4 py-2.5 text-sm bg-primary text-white rounded-lg hover:bg-primary-dark disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5 font-medium"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
