@@ -21,6 +21,7 @@ export interface ProductVariant {
   imageUrl: string | null
   inventoryQuantity: number
   incomingQuantity?: number
+  discountPercentage?: number
   available: boolean
 }
 
@@ -69,3 +70,16 @@ export type ShippingMethod =
   | 'star_track'
   | 'free_shipping'
   | ''
+
+// Admin types
+export interface Sale {
+  id: string
+  tag: string
+  percentage: number
+  active: boolean
+}
+
+export interface AdminSettings {
+  productTags: string[]
+  sales: Sale[]
+}

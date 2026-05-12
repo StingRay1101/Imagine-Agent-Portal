@@ -1,4 +1,4 @@
-import type { CompanyLocation, ProductVariant, Order, DraftOrder } from './types'
+import type { CompanyLocation, ProductVariant, Order, DraftOrder, AdminSettings } from './types'
 
 const API_BASE = import.meta.env.DEV
   ? '/api'
@@ -104,4 +104,64 @@ export async function getSavedDrafts(): Promise<DraftOrder[]> {
 
 export async function deleteDraft(id: string): Promise<void> {
   await apiFetch(`/drafts/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+// --- Admin API ---
+
+function getAdminHeaders(): HeadersInit {
+  const password = localStorage.getItem('admin_password') || ''
+  return {
+    'Content-Type': 'application/json',
+    'X-Admin-Password': password,
+  }
+}
+
+async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { ...getAdminHeaders(), ...options?.headers },
+  })
+  if (res.status === 401) {
+    localStorage.removeItem('admin_password')
+    window.location.reload()
+    throw new Error('Unauthorized')
+  }
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(body || `API error ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function verifyAdminPassword(): Promise<boolean> {
+  try {
+    const password = localStorage.getItem('admin_password') || ''
+    const res = await fetch(`${API_BASE}/admin/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Password': password,
+      },
+    })
+    if (!res.ok) return false
+    const data = await res.json()
+    return data.ok === true
+  } catch {
+    return false
+  }
+}
+
+export async function getAdminSettings(): Promise<AdminSettings> {
+  return adminFetch('/admin/settings')
+}
+
+export async function updateAdminSettings(settings: AdminSettings): Promise<AdminSettings> {
+  return adminFetch('/admin/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  })
+}
+
+export async function getShopifyTags(): Promise<string[]> {
+  return adminFetch('/admin/tags')
 }

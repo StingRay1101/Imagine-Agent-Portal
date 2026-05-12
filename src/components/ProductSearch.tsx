@@ -97,16 +97,21 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
     setSelectedVariants((prev) => ({ ...prev, [productId]: variantId }))
   }
 
-  function getWholesalePricing(retailPrice: number) {
+  function getWholesalePricing(retailPrice: number, discountPercentage?: number) {
     const wholesaleIncGst = Math.round(retailPrice * 0.35 * 100) / 100
-    const priceExGst = Math.round((wholesaleIncGst / 1.1) * 100) / 100
-    const gst = Math.round((wholesaleIncGst - priceExGst) * 100) / 100
+    let priceExGst = Math.round((wholesaleIncGst / 1.1) * 100) / 100
+    // Apply discount if present
+    if (discountPercentage && discountPercentage > 0) {
+      priceExGst = Math.round(priceExGst * (1 - discountPercentage / 100) * 100) / 100
+    }
+    const incGstAfterDiscount = Math.round(priceExGst * 1.1 * 100) / 100
+    const gst = Math.round((incGstAfterDiscount - priceExGst) * 100) / 100
     return { priceExGst, gst, wholesaleIncGst }
   }
 
   function addToOrder(variant: ProductVariant) {
     const retail = parseFloat(variant.price)
-    const { priceExGst, gst } = getWholesalePricing(retail)
+    const { priceExGst, gst } = getWholesalePricing(retail, variant.discountPercentage)
     onAddToOrder({
       variantId: variant.id,
       title: variant.productTitle + (variant.title !== 'Default Title' ? ` - ${variant.title}` : ''),
@@ -185,14 +190,23 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
             const selectedId = selectedVariants[group.productId]
             const selectedVariant = group.variants.find((v) => v.id === selectedId) || group.variants[0]
             const retail = parseFloat(selectedVariant.price)
-            const { priceExGst, gst } = getWholesalePricing(retail)
+            const discount = selectedVariant.discountPercentage
+            const { priceExGst, gst } = getWholesalePricing(retail, discount)
+            const originalPricing = discount ? getWholesalePricing(retail) : null
             const hasMultipleVariants = group.variants.length > 1 || group.variants[0]?.title !== 'Default Title'
 
             return (
               <div
                 key={group.productId}
-                className="border border-gray-200 rounded-lg p-3 flex flex-col"
+                className="border border-gray-200 rounded-lg p-3 flex flex-col relative"
               >
+                {/* Discount Badge */}
+                {discount && discount > 0 && (
+                  <div className="absolute top-2 right-2 z-10 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-md shadow-sm">
+                    {discount}% OFF
+                  </div>
+                )}
+
                 {/* Product Image */}
                 {selectedVariant.imageUrl ? (
                   <img
@@ -246,7 +260,17 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
 
                 {/* Price */}
                 <div className="text-sm font-semibold text-gray-900">
-                  ${priceExGst.toFixed(2)} <span className="font-normal text-gray-500">(ex GST)</span>
+                  {originalPricing ? (
+                    <>
+                      <span className="line-through text-gray-400 font-normal mr-1">
+                        ${originalPricing.priceExGst.toFixed(2)}
+                      </span>
+                      <span className="text-red-600">${priceExGst.toFixed(2)}</span>
+                    </>
+                  ) : (
+                    <>${priceExGst.toFixed(2)}</>
+                  )}{' '}
+                  <span className="font-normal text-gray-500">(ex GST)</span>
                 </div>
                 <div className="text-xs text-gray-500 mb-2">
                   + GST: ${gst.toFixed(2)}

@@ -4,13 +4,15 @@ import CompanySearch from './components/CompanySearch'
 import ProductSearch from './components/ProductSearch'
 import DraftOrderPanel from './components/DraftOrderPanel'
 import SavedDrafts from './components/SavedDrafts'
-import { verifyPassword, createDraftOrder, saveDraft, getOrderHistory } from './api'
+import AdminPanel from './components/AdminPanel'
+import { verifyPassword, verifyAdminPassword, createDraftOrder, saveDraft, getOrderHistory } from './api'
 import type { CompanyLocation, OrderLineItem, ShippingMethod, DraftOrder, Order } from './types'
 
 type View = 'main' | 'drafts'
+type AuthState = 'loading' | 'unauthenticated' | 'agent' | 'admin'
 
 export default function App() {
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null)
+  const [authState, setAuthState] = useState<AuthState>('loading')
   const [view, setView] = useState<View>('main')
   const [selectedLocation, setSelectedLocation] = useState<CompanyLocation | null>(null)
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([])
@@ -22,12 +24,30 @@ export default function App() {
   const [loadingOrders, setLoadingOrders] = useState(false)
 
   useEffect(() => {
-    const pw = localStorage.getItem('portal_password')
-    if (!pw) {
-      setAuthenticated(false)
-      return
+    async function checkAuth() {
+      // Check admin auth first
+      const adminPw = localStorage.getItem('admin_password')
+      if (adminPw) {
+        const ok = await verifyAdminPassword()
+        if (ok) {
+          setAuthState('admin')
+          return
+        }
+        localStorage.removeItem('admin_password')
+      }
+      // Check agent auth
+      const portalPw = localStorage.getItem('portal_password')
+      if (portalPw) {
+        const ok = await verifyPassword()
+        if (ok) {
+          setAuthState('agent')
+          return
+        }
+        localStorage.removeItem('portal_password')
+      }
+      setAuthState('unauthenticated')
     }
-    verifyPassword().then((ok) => setAuthenticated(ok))
+    checkAuth()
   }, [])
 
   const handleAddToOrder = useCallback((item: OrderLineItem) => {
@@ -139,7 +159,7 @@ export default function App() {
     setView('main')
   }
 
-  if (authenticated === null) {
+  if (authState === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="text-gray-500">Loading...</div>
@@ -147,8 +167,24 @@ export default function App() {
     )
   }
 
-  if (!authenticated) {
-    return <Login onLogin={() => setAuthenticated(true)} />
+  if (authState === 'unauthenticated') {
+    return (
+      <Login
+        onLogin={() => setAuthState('agent')}
+        onAdminLogin={() => setAuthState('admin')}
+      />
+    )
+  }
+
+  if (authState === 'admin') {
+    return (
+      <AdminPanel
+        onLogout={() => {
+          localStorage.removeItem('admin_password')
+          setAuthState('unauthenticated')
+        }}
+      />
+    )
   }
 
   return (
@@ -166,7 +202,7 @@ export default function App() {
           <button
             onClick={() => {
               localStorage.removeItem('portal_password')
-              setAuthenticated(false)
+              setAuthState('unauthenticated')
             }}
             className="text-sm text-gray-400 hover:text-white"
           >
