@@ -24,6 +24,13 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
+        <div className="flex justify-center mb-4">
+          <img
+            src="https://cdn.shopify.com/s/files/1/2724/6858/files/White_Logo_Wholesale.png?v=1738893136"
+            alt="Imagine Fashion"
+            className="h-10 bg-black rounded-lg px-4 py-2"
+          />
+        </div>
         <h1 className="text-2xl font-bold text-center mb-1">Sales Agent Portal</h1>
         <p className="text-center text-gray-500 text-sm mb-6">Imagine Fashion</p>
         <form onSubmit={handleSubmit}>
