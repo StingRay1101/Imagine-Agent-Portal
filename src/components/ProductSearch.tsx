@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { searchProducts } from '../api'
 import type { ProductVariant, OrderLineItem } from '../types'
 
@@ -7,12 +7,48 @@ interface Props {
   onAddToOrder: (item: OrderLineItem) => void
 }
 
+interface ProductGroup {
+  productId: string
+  productTitle: string
+  variants: ProductVariant[]
+}
+
 export default function ProductSearch({ companyLocationId, onAddToOrder }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProductVariant[]>([])
   const [searching, setSearching] = useState(false)
   const [quantities, setQuantities] = useState<Record<string, number>>({})
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({})
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
+
+  // Group variants by product
+  const productGroups = useMemo<ProductGroup[]>(() => {
+    const groups: ProductGroup[] = []
+    const map = new Map<string, ProductGroup>()
+
+    for (const variant of results) {
+      let group = map.get(variant.productId)
+      if (!group) {
+        group = {
+          productId: variant.productId,
+          productTitle: variant.productTitle,
+          variants: [],
+        }
+        map.set(variant.productId, group)
+        groups.push(group)
+      }
+      group.variants.push(variant)
+    }
+
+    // Sort: products with any in-stock variants first
+    groups.sort((a, b) => {
+      const aInStock = a.variants.some((v) => v.inventoryQuantity > 0) ? 0 : 1
+      const bInStock = b.variants.some((v) => v.inventoryQuantity > 0) ? 0 : 1
+      return aInStock - bInStock
+    })
+
+    return groups
+  }, [results])
 
   function handleChange(value: string) {
     setQuery(value)
@@ -26,8 +62,19 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
       try {
         const data = await searchProducts(value, companyLocationId)
         setResults(data)
+
+        // Auto-select first variant per product and init quantities
+        const selected: Record<string, string> = {}
         const q: Record<string, number> = {}
-        data.forEach((v) => { q[v.id] = 1 })
+        const seen = new Set<string>()
+        data.forEach((v) => {
+          if (!seen.has(v.productId)) {
+            selected[v.productId] = v.id
+            seen.add(v.productId)
+          }
+          q[v.id] = 1
+        })
+        setSelectedVariants(selected)
         setQuantities(q)
       } catch {
         setResults([])
@@ -41,8 +88,13 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
     setResults([])
   }
 
-  function setQuantity(variantId: string, qty: number) {
-    setQuantities((prev) => ({ ...prev, [variantId]: Math.max(1, qty) }))
+  function setQuantity(variantId: string, qty: number, maxStock: number) {
+    const capped = maxStock > 0 ? Math.min(qty, maxStock) : qty
+    setQuantities((prev) => ({ ...prev, [variantId]: Math.max(1, capped) }))
+  }
+
+  function selectVariant(productId: string, variantId: string) {
+    setSelectedVariants((prev) => ({ ...prev, [productId]: variantId }))
   }
 
   function getWholesalePricing(retailPrice: number) {
@@ -62,8 +114,38 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
       price: priceExGst,
       gst,
       quantity: quantities[variant.id] || 1,
+      maxQuantity: variant.inventoryQuantity,
       imageUrl: variant.imageUrl,
     })
+  }
+
+  function renderStockBadge(qty: number, incoming?: number) {
+    if (qty <= 0) {
+      if (incoming && incoming > 0) {
+        return (
+          <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
+            Coming Back in Stock ({incoming} incoming)
+          </span>
+        )
+      }
+      return (
+        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 border border-red-200">
+          Out of Stock
+        </span>
+      )
+    }
+    if (qty <= 5) {
+      return (
+        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+          Only {qty} left
+        </span>
+      )
+    }
+    return (
+      <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 border border-green-200">
+        Available
+      </span>
+    )
   }
 
   return (
@@ -97,64 +179,101 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
         <div className="mt-4 text-sm text-gray-500">Searching products...</div>
       )}
 
-      {results.length > 0 && (
+      {productGroups.length > 0 && (
         <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {results.map((variant) => {
-            const retail = parseFloat(variant.price)
+          {productGroups.map((group) => {
+            const selectedId = selectedVariants[group.productId]
+            const selectedVariant = group.variants.find((v) => v.id === selectedId) || group.variants[0]
+            const retail = parseFloat(selectedVariant.price)
             const { priceExGst, gst } = getWholesalePricing(retail)
+            const hasMultipleVariants = group.variants.length > 1 || group.variants[0]?.title !== 'Default Title'
+
             return (
               <div
-                key={variant.id}
+                key={group.productId}
                 className="border border-gray-200 rounded-lg p-3 flex flex-col"
               >
-                {variant.imageUrl ? (
+                {/* Product Image */}
+                {selectedVariant.imageUrl ? (
                   <img
-                    src={variant.imageUrl}
-                    alt={variant.productTitle}
-                    className="w-full h-48 object-cover rounded-md mb-3"
+                    src={selectedVariant.imageUrl}
+                    alt={group.productTitle}
+                    className="w-full rounded-md mb-3"
                   />
                 ) : (
-                  <div className="w-full h-48 bg-gray-100 rounded-md mb-3 flex items-center justify-center text-gray-400 text-xs">
+                  <div className="w-full aspect-square bg-gray-100 rounded-md mb-3 flex items-center justify-center text-gray-400 text-xs">
                     No image
                   </div>
                 )}
+
+                {/* Product Title */}
                 <div className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">
-                  {variant.productTitle}
-                  {variant.title !== 'Default Title' && (
-                    <span className="text-gray-600"> - {variant.title}</span>
-                  )}
+                  {group.productTitle}
                 </div>
+
+                {/* SKU */}
                 <div className="text-xs text-gray-500 mb-2">
-                  SKU: {variant.sku || '—'}
+                  SKU: {selectedVariant.sku || '—'}
                 </div>
+
+                {/* Variant Selector */}
+                {hasMultipleVariants && (
+                  <div className="mb-3">
+                    <div className="text-xs font-medium text-gray-600 mb-1.5">Select Variant</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {group.variants.map((v) => {
+                        const isSelected = v.id === selectedId
+                        const isOutOfStock = v.inventoryQuantity <= 0
+                        return (
+                          <button
+                            key={v.id}
+                            onClick={() => selectVariant(group.productId, v.id)}
+                            className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                              isSelected
+                                ? 'border-primary bg-primary/10 text-primary font-medium'
+                                : isOutOfStock
+                                  ? 'border-gray-200 text-gray-400 bg-gray-50'
+                                  : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            {v.title}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Price */}
                 <div className="text-sm font-semibold text-gray-900">
                   ${priceExGst.toFixed(2)} <span className="font-normal text-gray-500">(ex GST)</span>
                 </div>
                 <div className="text-xs text-gray-500 mb-2">
                   + GST: ${gst.toFixed(2)}
                 </div>
+
+                {/* Stock Badge */}
                 <div className="mb-3">
-                  {variant.available ? (
-                    <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 border border-green-200">
-                      Available
-                    </span>
-                  ) : (
-                    <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 border border-red-200">
-                      Out of Stock
-                    </span>
-                  )}
+                  {renderStockBadge(selectedVariant.inventoryQuantity, selectedVariant.incomingQuantity)}
                 </div>
+
+                {/* Quantity + Add to Order */}
                 <div className="mt-auto">
-                  <input
-                    type="number"
-                    min={1}
-                    value={quantities[variant.id] || 1}
-                    onChange={(e) => setQuantity(variant.id, parseInt(e.target.value) || 1)}
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm mb-2"
-                  />
+                  {selectedVariant.inventoryQuantity > 0 && (
+                    <input
+                      type="number"
+                      min={1}
+                      max={selectedVariant.inventoryQuantity}
+                      value={quantities[selectedVariant.id] || 1}
+                      onChange={(e) =>
+                        setQuantity(selectedVariant.id, parseInt(e.target.value) || 1, selectedVariant.inventoryQuantity)
+                      }
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm mb-2"
+                    />
+                  )}
                   <button
-                    onClick={() => addToOrder(variant)}
-                    disabled={!variant.available}
+                    onClick={() => addToOrder(selectedVariant)}
+                    disabled={selectedVariant.inventoryQuantity <= 0}
                     className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     Add to Order

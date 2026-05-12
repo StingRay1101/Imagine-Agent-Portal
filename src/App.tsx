@@ -36,7 +36,7 @@ export default function App() {
       if (existing) {
         return prev.map((li) =>
           li.variantId === item.variantId
-            ? { ...li, quantity: li.quantity + item.quantity }
+            ? { ...li, quantity: Math.min(li.quantity + item.quantity, li.maxQuantity) }
             : li
         )
       }
@@ -46,7 +46,7 @@ export default function App() {
 
   function updateQuantity(variantId: string, quantity: number) {
     setLineItems((prev) =>
-      prev.map((li) => (li.variantId === variantId ? { ...li, quantity } : li))
+      prev.map((li) => (li.variantId === variantId ? { ...li, quantity: Math.min(quantity, li.maxQuantity) } : li))
     )
   }
 
@@ -131,7 +131,11 @@ export default function App() {
       contactName: '',
       contactEmail: '',
     })
-    setLineItems(draft.lineItems)
+    // Ensure maxQuantity exists on resumed draft items (older drafts may not have it)
+    setLineItems(draft.lineItems.map((li) => ({
+      ...li,
+      maxQuantity: li.maxQuantity || 9999,
+    })))
     setView('main')
   }
 

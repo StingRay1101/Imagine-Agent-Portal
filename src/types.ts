@@ -20,6 +20,7 @@ export interface ProductVariant {
   compareAtPrice: string | null
   imageUrl: string | null
   inventoryQuantity: number
+  incomingQuantity?: number
   available: boolean
 }
 
@@ -30,6 +31,7 @@ export interface OrderLineItem {
   price: number
   gst: number
   quantity: number
+  maxQuantity: number
   imageUrl: string | null
 }
 
@@ -65,4 +67,5 @@ export type ShippingMethod =
   | 'parcel_post'
   | 'express_post'
   | 'star_track'
+  | 'free_shipping'
   | ''

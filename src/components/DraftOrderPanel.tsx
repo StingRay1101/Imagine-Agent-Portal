@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { OrderLineItem, ShippingMethod } from '../types'
 
 interface Props {
@@ -18,6 +18,11 @@ const SHIPPING_OPTIONS: { value: ShippingMethod; label: string }[] = [
   { value: 'star_track', label: 'Star Track (Usually most expensive. But quickest)' },
 ]
 
+const FREE_SHIPPING_OPTION: { value: ShippingMethod; label: string } = {
+  value: 'free_shipping',
+  label: 'Free Standard Shipping Over $500',
+}
+
 export default function DraftOrderPanel({
   lineItems,
   onUpdateQuantity,
@@ -35,6 +40,13 @@ export default function DraftOrderPanel({
   const subtotal = lineItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const gst = lineItems.reduce((sum, item) => sum + item.gst * item.quantity, 0)
   const total = subtotal + gst
+
+  // Auto-deselect free shipping if total drops below $500
+  useEffect(() => {
+    if (total <= 500 && shippingMethod === 'free_shipping') {
+      setShippingMethod('')
+    }
+  }, [total, shippingMethod])
 
   const filteredItems = searchFilter
     ? lineItems.filter(
@@ -71,9 +83,9 @@ export default function DraftOrderPanel({
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium text-gray-600">Product</th>
-                  <th className="px-3 py-2 text-center font-medium text-gray-600 w-32">Quantity</th>
+                  <th className="px-2 py-2 text-center font-medium text-gray-600 w-16">Qty</th>
                   <th className="px-3 py-2 text-right font-medium text-gray-600">Price</th>
-                  <th className="px-3 py-2 text-right font-medium text-gray-600 w-20">Actions</th>
+                  <th className="px-1 py-2 text-center font-medium text-gray-600 w-10"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -83,25 +95,32 @@ export default function DraftOrderPanel({
                       <div className="font-medium text-gray-900">{item.title}</div>
                       <div className="text-xs text-gray-500">SKU: {item.sku}</div>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-1 py-3">
                       <input
                         type="number"
                         min={1}
+                        max={item.maxQuantity}
                         value={item.quantity}
-                        onChange={(e) => onUpdateQuantity(item.variantId, parseInt(e.target.value) || 1)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center"
+                        onChange={(e) => onUpdateQuantity(item.variantId, Math.min(parseInt(e.target.value) || 1, item.maxQuantity))}
+                        className="w-16 px-1 py-1 border border-gray-300 rounded text-sm text-center"
                       />
+                      {item.maxQuantity <= 5 && (
+                        <div className="text-xs text-amber-600 text-center mt-0.5">{item.maxQuantity} left</div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <div className="text-gray-900">${(item.price * item.quantity).toFixed(2)} (ex GST)</div>
                       <div className="text-xs text-gray-500">GST: ${(item.gst * item.quantity).toFixed(2)}</div>
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-1 py-3 text-center">
                       <button
                         onClick={() => onRemoveItem(item.variantId)}
-                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                        className="text-red-500 hover:text-red-700 transition-colors"
+                        title="Remove item"
                       >
-                        Remove
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
                       </button>
                     </td>
                   </tr>
@@ -124,6 +143,19 @@ export default function DraftOrderPanel({
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">Shipping Method</label>
             <div className="space-y-2">
+              {total > 500 && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="shipping"
+                    value={FREE_SHIPPING_OPTION.value}
+                    checked={shippingMethod === FREE_SHIPPING_OPTION.value}
+                    onChange={() => setShippingMethod(FREE_SHIPPING_OPTION.value)}
+                    className="text-primary focus:ring-primary"
+                  />
+                  <span className="text-sm text-green-700 font-medium">{FREE_SHIPPING_OPTION.label}</span>
+                </label>
+              )}
               {SHIPPING_OPTIONS.map((opt) => (
                 <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
                   <input

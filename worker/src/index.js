@@ -1,7 +1,10 @@
 const SHOPIFY_API_VERSION = '2024-10';
+const SOUTHPORT_LOCATION_ID = 'gid://shopify/Location/11565400107';
+const INVENTORY_SAFETY_BUFFER = 3;
 
 let cachedToken = null;
 let tokenExpiry = 0;
+let cachedOnlineStorePubId = null;
 
 async function getAccessToken(env) {
   // Use direct access token if available (simplest approach)
@@ -93,6 +96,36 @@ function json(data, status = 200) {
 
 function error(message, status = 500) {
   return json({ error: message }, status);
+}
+
+async function getOnlineStorePublicationId(env) {
+  if (cachedOnlineStorePubId) return cachedOnlineStorePubId;
+
+  try {
+    const gql = `
+      query {
+        publications(first: 20) {
+          edges {
+            node {
+              id
+              name
+            }
+          }
+        }
+      }
+    `;
+    const data = await shopifyGraphQL(env, gql);
+    const pub = data.publications?.edges?.find((e) =>
+      e.node.name.toLowerCase() === 'online store'
+    );
+    if (pub) {
+      cachedOnlineStorePubId = pub.node.id;
+    }
+  } catch (err) {
+    console.log('Failed to look up Online Store publication:', err.message);
+  }
+
+  return cachedOnlineStorePubId;
 }
 
 // --- Route Handlers ---
@@ -212,33 +245,41 @@ async function handleSearchProducts(env, url) {
   const query = url.searchParams.get('q') || '';
   if (!query) return json([]);
 
-  const searchQuery = query.includes(':') ? query : `title:*${query}* OR sku:${query}*`;
+  const baseQuery = query.includes(':') ? query : `title:*${query}* OR sku:${query}*`;
+  const searchQuery = `(${baseQuery}) AND status:active`;
 
-  const gql = `
-    query SearchProducts($query: String!) {
-      products(first: 20, query: $query) {
-        edges {
-          node {
-            id
-            title
-            images(first: 1) {
-              edges {
-                node {
-                  url
+  // Look up Online Store publication ID for filtering
+  const publicationId = await getOnlineStorePublicationId(env);
+
+  // Product query — include publishedOnPublication if we have the publication ID
+  const gqlBasic = publicationId
+    ? `
+      query SearchProducts($query: String!, $publicationId: ID!) {
+        products(first: 20, query: $query) {
+          edges {
+            node {
+              id
+              title
+              publishedOnPublication(publicationId: $publicationId)
+              images(first: 1) {
+                edges {
+                  node {
+                    url
+                  }
                 }
               }
-            }
-            variants(first: 50) {
-              edges {
-                node {
-                  id
-                  title
-                  sku
-                  price
-                  compareAtPrice
-                  inventoryQuantity
-                  image {
-                    url
+              variants(first: 50) {
+                edges {
+                  node {
+                    id
+                    title
+                    sku
+                    price
+                    compareAtPrice
+                    inventoryQuantity
+                    image {
+                      url
+                    }
                   }
                 }
               }
@@ -246,19 +287,62 @@ async function handleSearchProducts(env, url) {
           }
         }
       }
-    }
-  `;
+    `
+    : `
+      query SearchProducts($query: String!) {
+        products(first: 20, query: $query) {
+          edges {
+            node {
+              id
+              title
+              images(first: 1) {
+                edges {
+                  node {
+                    url
+                  }
+                }
+              }
+              variants(first: 50) {
+                edges {
+                  node {
+                    id
+                    title
+                    sku
+                    price
+                    compareAtPrice
+                    inventoryQuantity
+                    image {
+                      url
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
 
-  const data = await shopifyGraphQL(env, gql, { query: searchQuery });
+  const variables = publicationId
+    ? { query: searchQuery, publicationId }
+    : { query: searchQuery };
+
+  const data = await shopifyGraphQL(env, gqlBasic, variables);
   const variants = [];
 
   for (const prodEdge of data.products.edges) {
     const product = prodEdge.node;
+
+    // Skip products not published on the Online Store
+    if (publicationId && product.publishedOnPublication === false) continue;
+
     const productImage = product.images?.edges?.[0]?.node?.url || null;
 
     for (const varEdge of product.variants.edges) {
       const v = varEdge.node;
-      const qty = v.inventoryQuantity ?? 0;
+      const rawQty = v.inventoryQuantity ?? 0;
+      const bufferedQty = Math.max(0, rawQty - INVENTORY_SAFETY_BUFFER);
+
       variants.push({
         id: v.id,
         productId: product.id,
@@ -268,10 +352,65 @@ async function handleSearchProducts(env, url) {
         price: v.price,
         compareAtPrice: v.compareAtPrice,
         imageUrl: v.image?.url || productImage,
-        inventoryQuantity: qty,
-        available: qty > 0,
+        inventoryQuantity: bufferedQty,
+        available: bufferedQty > 0,
       });
     }
+  }
+
+  // Try to get Southport-specific inventory (requires read_inventory scope)
+  try {
+    const inventoryItemIds = variants.map((v) => v.id);
+    if (inventoryItemIds.length > 0) {
+      const invGql = `
+        query GetInventoryAtLocation($locationId: ID!) {
+          location(id: $locationId) {
+            inventoryLevels(first: 100) {
+              edges {
+                node {
+                  item {
+                    variant {
+                      id
+                    }
+                  }
+                  quantities(names: ["available", "incoming"]) {
+                    name
+                    quantity
+                  }
+                }
+              }
+            }
+          }
+        }
+      `;
+      const invData = await shopifyGraphQL(env, invGql, { locationId: SOUTHPORT_LOCATION_ID });
+      const levels = invData.location?.inventoryLevels?.edges || [];
+
+      // Build maps of variantId -> available/incoming quantity at Southport
+      const southportStock = {};
+      const southportIncoming = {};
+      for (const edge of levels) {
+        const variantId = edge.node.item?.variant?.id;
+        if (!variantId) continue;
+        const available = edge.node.quantities?.find((q) => q.name === 'available');
+        const incoming = edge.node.quantities?.find((q) => q.name === 'incoming');
+        if (available) southportStock[variantId] = available.quantity;
+        if (incoming) southportIncoming[variantId] = incoming.quantity;
+      }
+
+      // Update variants with Southport-specific stock and incoming data
+      for (const variant of variants) {
+        if (variant.id in southportStock) {
+          const buffered = Math.max(0, southportStock[variant.id] - INVENTORY_SAFETY_BUFFER);
+          variant.inventoryQuantity = buffered;
+          variant.available = buffered > 0;
+        }
+        variant.incomingQuantity = southportIncoming[variant.id] || 0;
+      }
+    }
+  } catch (err) {
+    // read_inventory scope not available — stick with total inventory
+    console.log('Southport inventory lookup skipped (likely missing read_inventory scope):', err.message);
   }
 
   return json(variants);
@@ -373,6 +512,7 @@ async function handleCreateDraftOrder(env, request) {
     parcel_post: 'Australia Post - PARCEL POST + SIGNATURE',
     express_post: 'Australia Post - EXPRESS POST + SIGNATURE',
     star_track: 'Star Track',
+    free_shipping: 'Free Standard Shipping Over $500',
   };
 
   const noteLines = [];
