@@ -1,20 +1,24 @@
 import { useState, useEffect, useCallback } from 'react'
 import Login from './components/Login'
 import CompanySearch from './components/CompanySearch'
+import NewCustomerForm from './components/NewCustomerForm'
 import ProductSearch from './components/ProductSearch'
 import DraftOrderPanel from './components/DraftOrderPanel'
 import SavedDrafts from './components/SavedDrafts'
 import AdminPanel from './components/AdminPanel'
 import { verifyPassword, verifyAdminPassword, createDraftOrder, saveDraft, getOrderHistory } from './api'
-import type { CompanyLocation, OrderLineItem, ShippingMethod, DraftOrder, Order } from './types'
+import type { CompanyLocation, OrderLineItem, ShippingMethod, DraftOrder, Order, NewCustomerInfo } from './types'
 
 type View = 'main' | 'drafts'
 type AuthState = 'loading' | 'unauthenticated' | 'agent' | 'admin'
+type CustomerMode = 'select' | 'new-form' | 'new-ready'
 
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>('loading')
   const [view, setView] = useState<View>('main')
   const [selectedLocation, setSelectedLocation] = useState<CompanyLocation | null>(null)
+  const [customerMode, setCustomerMode] = useState<CustomerMode>('select')
+  const [newCustomer, setNewCustomer] = useState<NewCustomerInfo | null>(null)
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([])
   const [creating, setCreating] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -76,6 +80,8 @@ export default function App() {
 
   function startAgain() {
     setSelectedLocation(null)
+    setCustomerMode('select')
+    setNewCustomer(null)
     setLineItems([])
     setSuccessMessage('')
     setShowOrderHistory(false)
@@ -97,20 +103,26 @@ export default function App() {
   }
 
   async function handleCreateDraftOrder(notes: string, shippingMethod: ShippingMethod) {
-    if (!selectedLocation || lineItems.length === 0) return
+    if (lineItems.length === 0) return
+    if (!selectedLocation && !newCustomer) return
     setCreating(true)
     try {
-      const result = await createDraftOrder({
-        companyLocationId: selectedLocation.id,
-        companyId: selectedLocation.companyId,
-        companyContactId: selectedLocation.companyContactId,
+      const orderPayload: Parameters<typeof createDraftOrder>[0] = {
         lineItems: lineItems.map((li) => ({
           variantId: li.variantId,
           quantity: li.quantity,
         })),
         notes,
         shippingMethod,
-      })
+      }
+      if (newCustomer) {
+        orderPayload.newCustomer = newCustomer
+      } else if (selectedLocation) {
+        orderPayload.companyLocationId = selectedLocation.id
+        orderPayload.companyId = selectedLocation.companyId
+        orderPayload.companyContactId = selectedLocation.companyContactId
+      }
+      const result = await createDraftOrder(orderPayload)
       setSuccessMessage(`Draft order ${result.name} created successfully!`)
       setLineItems([])
     } catch (err) {
@@ -120,19 +132,25 @@ export default function App() {
   }
 
   async function handleSaveDraft(notes: string, shippingMethod: ShippingMethod) {
-    if (!selectedLocation || lineItems.length === 0) return
+    if (lineItems.length === 0) return
+    if (!selectedLocation && !newCustomer) return
     setSaving(true)
     try {
-      await saveDraft({
-        companyLocationId: selectedLocation.id,
-        companyId: selectedLocation.companyId,
-        companyContactId: selectedLocation.companyContactId,
-        companyName: selectedLocation.companyName,
-        locationName: selectedLocation.locationName,
+      const draftPayload: Parameters<typeof saveDraft>[0] = {
+        companyName: selectedLocation?.companyName || newCustomer?.companyName || 'New Customer',
+        locationName: selectedLocation?.locationName || `${newCustomer?.firstName} ${newCustomer?.lastName}`,
         lineItems,
         notes,
         shippingMethod,
-      })
+      }
+      if (newCustomer) {
+        draftPayload.newCustomer = newCustomer
+      } else if (selectedLocation) {
+        draftPayload.companyLocationId = selectedLocation.id
+        draftPayload.companyId = selectedLocation.companyId
+        draftPayload.companyContactId = selectedLocation.companyContactId
+      }
+      await saveDraft(draftPayload)
       setSuccessMessage('Draft saved successfully!')
     } catch (err) {
       alert(`Failed to save draft: ${err instanceof Error ? err.message : 'Unknown error'}`)
@@ -141,16 +159,26 @@ export default function App() {
   }
 
   function handleResumeDraft(draft: DraftOrder) {
-    setSelectedLocation({
-      id: draft.companyLocationId || draft.id,
-      companyId: draft.companyId || '',
-      companyContactId: draft.companyContactId || '',
-      companyName: draft.companyName,
-      locationName: draft.locationName,
-      address: '',
-      contactName: '',
-      contactEmail: '',
-    })
+    if (draft.newCustomer) {
+      // Resume as new customer order
+      setNewCustomer(draft.newCustomer)
+      setCustomerMode('new-ready')
+      setSelectedLocation(null)
+    } else {
+      // Resume as existing company order
+      setSelectedLocation({
+        id: draft.companyLocationId || draft.id,
+        companyId: draft.companyId || '',
+        companyContactId: draft.companyContactId || '',
+        companyName: draft.companyName,
+        locationName: draft.locationName,
+        address: '',
+        contactName: '',
+        contactEmail: '',
+      })
+      setCustomerMode('select')
+      setNewCustomer(null)
+    }
     // Ensure maxQuantity exists on resumed draft items (older drafts may not have it)
     setLineItems(draft.lineItems.map((li) => ({
       ...li,
@@ -233,58 +261,111 @@ export default function App() {
           />
         ) : (
           <>
-            {!selectedLocation ? (
+            {/* Step 1: Choose existing company or new customer */}
+            {!selectedLocation && customerMode === 'select' ? (
               <div className="max-w-3xl mx-auto space-y-4">
                 <CompanySearch
                   onSelect={(loc) => {
                     setSelectedLocation(loc)
+                    setCustomerMode('select')
                     setLineItems([])
                     setSuccessMessage('')
                   }}
                   onViewDrafts={() => setView('drafts')}
                 />
                 <div className="bg-white rounded-xl shadow-sm p-6">
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-500 mb-3">
                     Search and select a company location to begin creating an order
                   </p>
+                  <div className="border-t border-gray-200 pt-4">
+                    <button
+                      onClick={() => setCustomerMode('new-form')}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-primary hover:text-primary hover:bg-indigo-50 transition-colors font-medium"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      New Customer Order
+                    </button>
+                  </div>
                 </div>
               </div>
-            ) : (
+
+            ) : customerMode === 'new-form' && !newCustomer ? (
+              /* Step 2a: New customer form */
+              <NewCustomerForm
+                onSubmit={(info) => {
+                  setNewCustomer(info)
+                  setCustomerMode('new-ready')
+                  setLineItems([])
+                  setSuccessMessage('')
+                }}
+                onBack={() => setCustomerMode('select')}
+              />
+
+            ) : (selectedLocation || newCustomer) ? (
+              /* Step 3: Product search + draft order */
               <>
                 <div className="bg-white rounded-xl shadow-sm mb-4">
                   <div className="px-5 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        newCustomer ? 'bg-blue-100' : 'bg-green-100'
+                      }`}>
+                        {newCustomer ? (
+                          <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
                       </div>
                       <div>
-                        <div className="font-semibold text-gray-900 text-sm">{selectedLocation.companyName}</div>
-                        <div className="text-xs text-gray-500">{selectedLocation.locationName}{selectedLocation.address ? ` · ${selectedLocation.address}` : ''}</div>
+                        {newCustomer ? (
+                          <>
+                            <div className="font-semibold text-gray-900 text-sm">
+                              {newCustomer.companyName}
+                              <span className="ml-2 inline-block px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">New Customer</span>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {newCustomer.firstName} {newCustomer.lastName} · {newCustomer.streetAddress}{newCustomer.shopNumber ? `, ${newCustomer.shopNumber}` : ''}, {newCustomer.suburb} {newCustomer.state} {newCustomer.postcode}
+                            </div>
+                          </>
+                        ) : selectedLocation ? (
+                          <>
+                            <div className="font-semibold text-gray-900 text-sm">{selectedLocation.companyName}</div>
+                            <div className="text-xs text-gray-500">{selectedLocation.locationName}{selectedLocation.address ? ` · ${selectedLocation.address}` : ''}</div>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <button
-                        onClick={toggleOrderHistory}
-                        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                        </svg>
-                        Order History
-                      </button>
-                      <span className="text-gray-300">|</span>
+                      {selectedLocation && (
+                        <>
+                          <button
+                            onClick={toggleOrderHistory}
+                            className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                            Order History
+                          </button>
+                          <span className="text-gray-300">|</span>
+                        </>
+                      )}
                       <button
                         onClick={startAgain}
                         className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
                       >
-                        Change Company
+                        {newCustomer ? 'Start Again' : 'Change Company'}
                       </button>
                     </div>
                   </div>
 
-                  {showOrderHistory && (
+                  {showOrderHistory && selectedLocation && (
                     <div className="border-t border-gray-200 px-5 py-4">
                       {loadingOrders ? (
                         <div className="text-sm text-gray-500">Loading orders...</div>
@@ -353,7 +434,7 @@ export default function App() {
                 <div className="flex gap-6 items-start">
                   <div className="flex-1 min-w-0">
                     <ProductSearch
-                      companyLocationId={selectedLocation.id}
+                      companyLocationId={selectedLocation?.id}
                       onAddToOrder={handleAddToOrder}
                     />
                   </div>
@@ -371,7 +452,7 @@ export default function App() {
                   </div>
                 </div>
               </>
-            )}
+            ) : null}
           </>
         )}
       </main>

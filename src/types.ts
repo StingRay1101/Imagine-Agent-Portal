@@ -45,6 +45,7 @@ export interface DraftOrder {
   companyContactId: string
   companyName: string
   locationName: string
+  newCustomer?: NewCustomerInfo | null
   lineItems: OrderLineItem[]
   notes: string
   shippingMethod: string
@@ -70,6 +71,20 @@ export type ShippingMethod =
   | 'star_track'
   | 'free_shipping'
   | ''
+
+// New Customer types
+export interface NewCustomerInfo {
+  firstName: string
+  lastName: string
+  companyName: string
+  streetAddress: string
+  shopNumber: string
+  suburb: string
+  state: string
+  postcode: string
+  phone: string
+  email: string
+}
 
 // Admin types
 export interface Sale {

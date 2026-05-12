@@ -79,11 +79,22 @@ function isAuthorized(request, env) {
   return false;
 }
 
+function isAdminAuthorized(request, env) {
+  const pw = request.headers.get('X-Admin-Password');
+  return pw && env.ADMIN_PASSWORD && pw === env.ADMIN_PASSWORD;
+}
+
+async function getAdminSettings(env) {
+  const raw = await env.DRAFT_STORE.get('admin_settings');
+  if (!raw) return { productTags: [], sales: [] };
+  return JSON.parse(raw);
+}
+
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Portal-Password',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Portal-Password, X-Admin-Password',
   };
 }
 
@@ -245,8 +256,17 @@ async function handleSearchProducts(env, url) {
   const query = url.searchParams.get('q') || '';
   if (!query) return json([]);
 
+  // Load admin settings for tag filtering and discounts
+  const adminSettings = await getAdminSettings(env);
+
   const baseQuery = query.includes(':') ? query : `title:*${query}* OR sku:${query}*`;
-  const searchQuery = `(${baseQuery}) AND status:active`;
+  let searchQuery = `(${baseQuery}) AND status:active`;
+
+  // Add tag filter if admin has configured product tags
+  if (adminSettings.productTags && adminSettings.productTags.length > 0) {
+    const tagFilter = adminSettings.productTags.map((t) => `tag:'${t}'`).join(' OR ');
+    searchQuery += ` AND (${tagFilter})`;
+  }
 
   // Look up Online Store publication ID for filtering
   const publicationId = await getOnlineStorePublicationId(env);
@@ -260,6 +280,7 @@ async function handleSearchProducts(env, url) {
             node {
               id
               title
+              tags
               publishedOnPublication(publicationId: $publicationId)
               images(first: 1) {
                 edges {
@@ -295,6 +316,7 @@ async function handleSearchProducts(env, url) {
             node {
               id
               title
+              tags
               images(first: 1) {
                 edges {
                   node {
@@ -337,6 +359,16 @@ async function handleSearchProducts(env, url) {
     if (publicationId && product.publishedOnPublication === false) continue;
 
     const productImage = product.images?.edges?.[0]?.node?.url || null;
+    const productTags = product.tags || [];
+
+    // Check if any active sale applies to this product
+    let discountPercentage = 0;
+    const activeSales = adminSettings.sales?.filter((s) => s.active) || [];
+    for (const sale of activeSales) {
+      if (productTags.some((t) => t.toLowerCase() === sale.tag.toLowerCase())) {
+        discountPercentage = Math.max(discountPercentage, sale.percentage);
+      }
+    }
 
     for (const varEdge of product.variants.edges) {
       const v = varEdge.node;
@@ -354,6 +386,7 @@ async function handleSearchProducts(env, url) {
         imageUrl: v.image?.url || productImage,
         inventoryQuantity: bufferedQty,
         available: bufferedQty > 0,
+        discountPercentage,
       });
     }
   }
@@ -472,40 +505,13 @@ async function handleGetOrders(env, url) {
 
 async function handleCreateDraftOrder(env, request) {
   const body = await request.json();
-  const { companyLocationId, lineItems, notes, shippingMethod } = body;
+  const { companyLocationId, newCustomer, lineItems, notes, shippingMethod } = body;
 
-  if (!companyLocationId || !lineItems?.length) {
-    return error('Missing companyLocationId or lineItems', 400);
+  if (!lineItems?.length) {
+    return error('Missing lineItems', 400);
   }
-
-  // Look up companyId and companyContactId from the location
-  const lookupGql = `
-    query LookupLocation($locationId: ID!) {
-      companyLocation(id: $locationId) {
-        company {
-          id
-          contacts(first: 1) {
-            edges {
-              node {
-                id
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const lookupData = await shopifyGraphQL(env, lookupGql, { locationId: companyLocationId });
-  const company = lookupData.companyLocation?.company;
-  if (!company) {
-    return error('Company not found for this location', 400);
-  }
-
-  const companyId = company.id;
-  const companyContactId = company.contacts?.edges?.[0]?.node?.id;
-  if (!companyContactId) {
-    return error('No contact found for this company', 400);
+  if (!companyLocationId && !newCustomer) {
+    return error('Must provide companyLocationId or newCustomer', 400);
   }
 
   const shippingLabels = {
@@ -516,6 +522,26 @@ async function handleCreateDraftOrder(env, request) {
   };
 
   const noteLines = [];
+
+  // If new customer, format their details into the notes
+  if (newCustomer) {
+    noteLines.push('--- NEW CUSTOMER DETAILS ---');
+    noteLines.push(`Stockist First Name: ${newCustomer.firstName || ''}`);
+    noteLines.push(`Stockist Last Name: ${newCustomer.lastName || ''}`);
+    noteLines.push(`Company Name: ${newCustomer.companyName || ''}`);
+    noteLines.push(`Delivery Street Address: ${newCustomer.streetAddress || ''}`);
+    if (newCustomer.shopNumber) {
+      noteLines.push(`Delivery Shop Number: ${newCustomer.shopNumber}`);
+    }
+    noteLines.push(`Delivery Suburb: ${newCustomer.suburb || ''}`);
+    noteLines.push(`Delivery State: ${newCustomer.state || ''}`);
+    noteLines.push(`Delivery Postcode: ${newCustomer.postcode || ''}`);
+    noteLines.push(`Stockist Phone Number: ${newCustomer.phone || ''}`);
+    noteLines.push(`Stockist Email Address: ${newCustomer.email || ''}`);
+    noteLines.push('--- END NEW CUSTOMER DETAILS ---');
+    noteLines.push('');
+  }
+
   if (notes) noteLines.push(notes);
   if (shippingMethod && shippingLabels[shippingMethod]) {
     noteLines.push(`Preferred shipping: ${shippingLabels[shippingMethod]}`);
@@ -538,20 +564,73 @@ async function handleCreateDraftOrder(env, request) {
   `;
 
   const input = {
-    purchasingEntity: {
-      purchasingCompany: {
-        companyId,
-        companyContactId,
-        companyLocationId,
-      },
-    },
     lineItems: lineItems.map((li) => ({
       variantId: li.variantId,
       quantity: li.quantity,
     })),
     note: noteLines.join('\n'),
-    tags: ['Sales Agent App'],
+    tags: newCustomer ? ['Sales Agent App', 'New Customer'] : ['Sales Agent App'],
   };
+
+  // If existing B2B company, attach the purchasing entity
+  if (companyLocationId) {
+    const lookupGql = `
+      query LookupLocation($locationId: ID!) {
+        companyLocation(id: $locationId) {
+          company {
+            id
+            contacts(first: 1) {
+              edges {
+                node {
+                  id
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const lookupData = await shopifyGraphQL(env, lookupGql, { locationId: companyLocationId });
+    const company = lookupData.companyLocation?.company;
+    if (!company) {
+      return error('Company not found for this location', 400);
+    }
+
+    const companyId = company.id;
+    const companyContactId = company.contacts?.edges?.[0]?.node?.id;
+    if (!companyContactId) {
+      return error('No contact found for this company', 400);
+    }
+
+    input.purchasingEntity = {
+      purchasingCompany: {
+        companyId,
+        companyContactId,
+        companyLocationId,
+      },
+    };
+  }
+
+  // If new customer, set shipping address on the draft order
+  if (newCustomer) {
+    const addressParts = [newCustomer.streetAddress];
+    if (newCustomer.shopNumber) addressParts.unshift(newCustomer.shopNumber);
+
+    input.shippingAddress = {
+      firstName: newCustomer.firstName,
+      lastName: newCustomer.lastName,
+      company: newCustomer.companyName,
+      address1: addressParts.join(', '),
+      city: newCustomer.suburb,
+      province: newCustomer.state,
+      zip: newCustomer.postcode,
+      country: 'AU',
+      phone: newCustomer.phone,
+    };
+
+    input.email = newCustomer.email;
+  }
 
   const data = await shopifyGraphQL(env, gql, { input });
   const result = data.draftOrderCreate;
@@ -575,9 +654,12 @@ async function handleSaveDraft(env, request) {
 
   const draft = {
     id,
-    companyLocationId: body.companyLocationId,
-    companyName: body.companyName,
-    locationName: body.locationName,
+    companyLocationId: body.companyLocationId || '',
+    companyId: body.companyId || '',
+    companyContactId: body.companyContactId || '',
+    companyName: body.companyName || '',
+    locationName: body.locationName || '',
+    newCustomer: body.newCustomer || null,
     lineItems: body.lineItems,
     notes: body.notes || '',
     shippingMethod: body.shippingMethod || '',
@@ -620,6 +702,52 @@ async function handleDeleteDraft(env, id) {
   return json({ ok: true });
 }
 
+// --- Admin Handlers ---
+
+async function handleAdminGetSettings(env) {
+  const settings = await getAdminSettings(env);
+  return json(settings);
+}
+
+async function handleAdminUpdateSettings(env, request) {
+  const body = await request.json();
+  const settings = {
+    productTags: Array.isArray(body.productTags) ? body.productTags : [],
+    sales: Array.isArray(body.sales) ? body.sales.map((s) => ({
+      id: s.id || `sale_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      tag: s.tag || '',
+      percentage: Number(s.percentage) || 0,
+      active: s.active !== false,
+    })) : [],
+  };
+  await env.DRAFT_STORE.put('admin_settings', JSON.stringify(settings));
+  return json(settings);
+}
+
+async function handleAdminGetTags(env) {
+  // Fetch all unique tags from Shopify products
+  const gql = `
+    query {
+      products(first: 100, query: "status:active") {
+        edges {
+          node {
+            tags
+          }
+        }
+      }
+    }
+  `;
+  const data = await shopifyGraphQL(env, gql);
+  const tagSet = new Set();
+  for (const edge of data.products.edges) {
+    for (const tag of edge.node.tags) {
+      tagSet.add(tag);
+    }
+  }
+  const tags = Array.from(tagSet).sort();
+  return json(tags);
+}
+
 // --- Router ---
 
 export default {
@@ -634,8 +762,27 @@ export default {
     if (path === '/api/health') return json({ status: 'ok' });
     if (path === '/api/debug-auth') return await handleDebugAuth(env);
 
-    if (!isAuthorized(request, env)) {
+    // Admin routes (separate auth)
+    if (path.startsWith('/api/admin/')) {
+      if (path === '/api/admin/verify' && request.method === 'POST') {
+        return json({ ok: isAdminAuthorized(request, env) });
+      }
+      if (!isAdminAuthorized(request, env)) {
+        return error('Unauthorized', 401);
+      }
+      try {
+        if (path === '/api/admin/settings' && request.method === 'GET') return await handleAdminGetSettings(env);
+        if (path === '/api/admin/settings' && request.method === 'PUT') return await handleAdminUpdateSettings(env, request);
+        if (path === '/api/admin/tags' && request.method === 'GET') return await handleAdminGetTags(env);
+        return error('Not found', 404);
+      } catch (err) {
+        console.error('Admin error:', err);
+        return error(err.message || 'Internal server error', 500);
+      }
+    }
 
+    // Agent routes
+    if (!isAuthorized(request, env)) {
       return error('Unauthorized', 401);
     }
 

@@ -1,4 +1,4 @@
-import type { CompanyLocation, ProductVariant, Order, DraftOrder, AdminSettings } from './types'
+import type { CompanyLocation, ProductVariant, Order, DraftOrder, AdminSettings, NewCustomerInfo } from './types'
 
 const API_BASE = import.meta.env.DEV
   ? '/api'
@@ -68,9 +68,10 @@ export async function getOrderHistory(
 }
 
 export async function createDraftOrder(order: {
-  companyLocationId: string
-  companyId: string
-  companyContactId: string
+  companyLocationId?: string
+  companyId?: string
+  companyContactId?: string
+  newCustomer?: NewCustomerInfo
   lineItems: { variantId: string; quantity: number }[]
   notes: string
   shippingMethod: string
@@ -83,11 +84,12 @@ export async function createDraftOrder(order: {
 
 export async function saveDraft(draft: {
   id?: string
-  companyLocationId: string
-  companyId: string
-  companyContactId: string
+  companyLocationId?: string
+  companyId?: string
+  companyContactId?: string
   companyName: string
   locationName: string
+  newCustomer?: NewCustomerInfo
   lineItems: { variantId: string; title: string; sku: string; price: number; gst: number; quantity: number; imageUrl: string | null }[]
   notes: string
   shippingMethod: string
