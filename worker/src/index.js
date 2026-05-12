@@ -628,8 +628,6 @@ async function handleCreateDraftOrder(env, request) {
       country: 'AU',
       phone: newCustomer.phone,
     };
-
-    input.email = newCustomer.email;
   }
 
   const data = await shopifyGraphQL(env, gql, { input });
