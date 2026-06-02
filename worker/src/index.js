@@ -574,6 +574,20 @@ async function handleCreateDraftOrder(env, request) {
         companyLocation(id: $locationId) {
           company {
             id
+            contacts(first: 1) {
+              edges {
+                node {
+                  id
+                }
+              }
+            }
+            contactRoles(first: 1) {
+              edges {
+                node {
+                  id
+                }
+              }
+            }
           }
           roleAssignments(first: 1) {
             edges {
@@ -595,9 +609,49 @@ async function handleCreateDraftOrder(env, request) {
     }
 
     const companyId = locationData.company.id;
-    const companyContactId = locationData.roleAssignments?.edges?.[0]?.node?.companyContact?.id;
+    let companyContactId = locationData.roleAssignments?.edges?.[0]?.node?.companyContact?.id;
+
+    // If no role assignment exists at this location, auto-assign one
     if (!companyContactId) {
-      return error('No contact with a role assigned at this location', 400);
+      const contact = locationData.company.contacts?.edges?.[0]?.node;
+      const role = locationData.company.contactRoles?.edges?.[0]?.node;
+      if (!contact) {
+        return error('No contact found for this company', 400);
+      }
+      if (!role) {
+        return error('No contact role defined for this company', 400);
+      }
+
+      const assignGql = `
+        mutation AssignRole($companyContactId: ID!, $companyContactRoleId: ID!, $companyLocationId: ID!) {
+          companyContactAssignRole(
+            companyContactId: $companyContactId
+            companyContactRoleId: $companyContactRoleId
+            companyLocationId: $companyLocationId
+          ) {
+            companyContactRoleAssignment {
+              id
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+
+      const assignResult = await shopifyGraphQL(env, assignGql, {
+        companyContactId: contact.id,
+        companyContactRoleId: role.id,
+        companyLocationId,
+      });
+
+      const assignErrors = assignResult.companyContactAssignRole?.userErrors;
+      if (assignErrors?.length) {
+        return error('Failed to assign role: ' + assignErrors.map((e) => e.message).join(', '), 400);
+      }
+
+      companyContactId = contact.id;
     }
 
     input.purchasingEntity = {
