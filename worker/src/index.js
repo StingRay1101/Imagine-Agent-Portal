@@ -201,20 +201,15 @@ async function handleSearchCompanies(env, url) {
                       name
                     }
                   }
-                }
-              }
-            }
-            contactRoles(first: 5) {
-              edges {
-                node {
-                  name
-                }
-              }
-            }
-            contacts(first: 1) {
-              edges {
-                node {
-                  id
+                  roleAssignments(first: 1) {
+                    edges {
+                      node {
+                        companyContact {
+                          id
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -229,12 +224,12 @@ async function handleSearchCompanies(env, url) {
 
   for (const companyEdge of data.companies.edges) {
     const company = companyEdge.node;
-    const contactId = company.contacts?.edges?.[0]?.node?.id || '';
 
     for (const locEdge of company.locations.edges) {
       const loc = locEdge.node;
       const addr = loc.shippingAddress;
       const addressParts = [addr?.address1, addr?.city, addr?.province, addr?.country].filter(Boolean);
+      const contactId = loc.roleAssignments?.edges?.[0]?.node?.companyContact?.id || '';
 
       results.push({
         id: loc.id,
@@ -579,9 +574,11 @@ async function handleCreateDraftOrder(env, request) {
         companyLocation(id: $locationId) {
           company {
             id
-            contacts(first: 1) {
-              edges {
-                node {
+          }
+          roleAssignments(first: 1) {
+            edges {
+              node {
+                companyContact {
                   id
                 }
               }
@@ -592,15 +589,15 @@ async function handleCreateDraftOrder(env, request) {
     `;
 
     const lookupData = await shopifyGraphQL(env, lookupGql, { locationId: companyLocationId });
-    const company = lookupData.companyLocation?.company;
-    if (!company) {
+    const locationData = lookupData.companyLocation;
+    if (!locationData?.company) {
       return error('Company not found for this location', 400);
     }
 
-    const companyId = company.id;
-    const companyContactId = company.contacts?.edges?.[0]?.node?.id;
+    const companyId = locationData.company.id;
+    const companyContactId = locationData.roleAssignments?.edges?.[0]?.node?.companyContact?.id;
     if (!companyContactId) {
-      return error('No contact found for this company', 400);
+      return error('No contact with a role assigned at this location', 400);
     }
 
     input.purchasingEntity = {
