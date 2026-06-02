@@ -1,8 +1,6 @@
 import type { CompanyLocation, ProductVariant, Order, DraftOrder, AdminSettings, NewCustomerInfo } from './types'
 
-const API_BASE = import.meta.env.DEV
-  ? '/api'
-  : 'https://agent-portal-worker.sam-58d.workers.dev/api'
+const API_BASE = '/api'
 
 function getHeaders(): HeadersInit {
   const password = localStorage.getItem('portal_password') || ''
