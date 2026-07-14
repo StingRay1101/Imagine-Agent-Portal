@@ -20,7 +20,7 @@ const SHIPPING_OPTIONS: { value: ShippingMethod; label: string }[] = [
 
 const FREE_SHIPPING_OPTION: { value: ShippingMethod; label: string } = {
   value: 'free_shipping',
-  label: 'Free Standard Shipping Over $500',
+  label: 'Free Standard Shipping Over $1000',
 }
 
 export default function DraftOrderPanel({
@@ -41,9 +41,8 @@ export default function DraftOrderPanel({
   const gst = lineItems.reduce((sum, item) => sum + item.gst * item.quantity, 0)
   const total = subtotal + gst
 
-  // Auto-deselect free shipping if total drops below $500
   useEffect(() => {
-    if (total <= 500 && shippingMethod === 'free_shipping') {
+    if (total <= 1000 && shippingMethod === 'free_shipping') {
       setShippingMethod('')
     }
   }, [total, shippingMethod])
@@ -143,7 +142,7 @@ export default function DraftOrderPanel({
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">Shipping Method</label>
             <div className="space-y-2">
-              {total > 500 && (
+              {total > 1000 && (
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"

@@ -513,7 +513,7 @@ async function handleCreateDraftOrder(env, request) {
     parcel_post: 'Australia Post - PARCEL POST + SIGNATURE',
     express_post: 'Australia Post - EXPRESS POST + SIGNATURE',
     star_track: 'Star Track',
-    free_shipping: 'Free Standard Shipping Over $500',
+    free_shipping: 'Free Standard Shipping Over $1000',
   };
 
   const noteLines = [];
