@@ -98,7 +98,7 @@ export default function ProductSearch({ companyLocationId, onAddToOrder }: Props
   }
 
   function getWholesalePricing(retailPrice: number, discountPercentage?: number) {
-    const wholesaleIncGst = Math.round(retailPrice * 0.35 * 100) / 100
+    const wholesaleIncGst = Math.round(retailPrice * 0.43 * 100) / 100
     let priceExGst = Math.round((wholesaleIncGst / 1.1) * 100) / 100
     // Apply discount if present
     if (discountPercentage && discountPercentage > 0) {
