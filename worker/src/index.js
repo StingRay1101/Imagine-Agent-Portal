@@ -681,18 +681,80 @@ async function handleCreateDraftOrder(env, request) {
     };
   }
 
-  const data = await shopifyGraphQL(env, gql, { input });
+  const logEntry = {
+    action: 'create_draft_order',
+    companyName: newCustomer?.companyName || body.companyName || '',
+    customerName: newCustomer ? `${newCustomer.firstName} ${newCustomer.lastName}` : '',
+    isNewCustomer: !!newCustomer,
+    companyLocationId: companyLocationId || '',
+    itemCount: lineItems.length,
+    shippingMethod: shippingMethod || '',
+  };
+
+  let data;
+  try {
+    data = await shopifyGraphQL(env, gql, { input });
+  } catch (err) {
+    await logActivity(env, { ...logEntry, status: 'error', error: err.message });
+    throw err;
+  }
+
   const result = data.draftOrderCreate;
 
   if (result.userErrors?.length) {
-    return error(result.userErrors.map((e) => e.message).join(', '), 400);
+    const errMsg = result.userErrors.map((e) => e.message).join(', ');
+    await logActivity(env, { ...logEntry, status: 'failed', error: errMsg });
+    return error(errMsg, 400);
   }
+
+  await logActivity(env, {
+    ...logEntry,
+    status: 'success',
+    orderId: result.draftOrder.id,
+    orderName: result.draftOrder.name,
+  });
 
   return json({
     id: result.draftOrder.id,
     name: result.draftOrder.name,
     invoiceUrl: result.draftOrder.invoiceUrl,
   });
+}
+
+// --- Activity Log (KV) ---
+
+async function logActivity(env, entry) {
+  try {
+    const id = `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const record = {
+      id,
+      timestamp: new Date().toISOString(),
+      ...entry,
+    };
+    await env.DRAFT_STORE.put(`log:${id}`, JSON.stringify(record), { expirationTtl: 60 * 60 * 24 * 90 });
+
+    const indexRaw = await env.DRAFT_STORE.get('log_index');
+    const index = indexRaw ? JSON.parse(indexRaw) : [];
+    index.unshift(id);
+    const trimmed = index.slice(0, 500);
+    await env.DRAFT_STORE.put('log_index', JSON.stringify(trimmed));
+  } catch (err) {
+    console.error('Failed to write activity log:', err.message);
+  }
+}
+
+async function handleGetActivityLog(env, url) {
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+  const indexRaw = await env.DRAFT_STORE.get('log_index');
+  const index = indexRaw ? JSON.parse(indexRaw) : [];
+  const logs = [];
+
+  for (const id of index.slice(0, limit)) {
+    const raw = await env.DRAFT_STORE.get(`log:${id}`);
+    if (raw) logs.push(JSON.parse(raw));
+  }
+
+  return json(logs);
 }
 
 // --- Draft Storage (KV) ---
@@ -823,6 +885,7 @@ export default {
         if (path === '/api/admin/settings' && request.method === 'GET') return await handleAdminGetSettings(env);
         if (path === '/api/admin/settings' && request.method === 'PUT') return await handleAdminUpdateSettings(env, request);
         if (path === '/api/admin/tags' && request.method === 'GET') return await handleAdminGetTags(env);
+        if (path === '/api/admin/logs' && request.method === 'GET') return await handleGetActivityLog(env, url);
         return error('Not found', 404);
       } catch (err) {
         console.error('Admin error:', err);

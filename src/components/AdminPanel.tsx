@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getAdminSettings, updateAdminSettings, getShopifyTags } from '../api'
+import { getAdminSettings, updateAdminSettings, getShopifyTags, getActivityLog } from '../api'
 import type { AdminSettings, Sale } from '../types'
+import type { ActivityLogEntry } from '../api'
 
 interface Props {
   onLogout: () => void
@@ -17,6 +18,9 @@ export default function AdminPanel({ onLogout }: Props) {
   const [showTagDropdown, setShowTagDropdown] = useState(false)
   const [showSaleTagDropdown, setShowSaleTagDropdown] = useState(false)
   const [newSalePercentage, setNewSalePercentage] = useState('')
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([])
+  const [loadingLog, setLoadingLog] = useState(false)
+  const [showLog, setShowLog] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -404,6 +408,93 @@ export default function AdminPanel({ onLogout }: Props) {
             </svg>
             {saving ? 'Saving...' : 'Save Settings'}
           </button>
+        </div>
+
+        {/* Activity Log */}
+        <div className="mt-8 bg-white rounded-xl shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Activity Log</h2>
+              <p className="text-sm text-gray-500">Draft order creation attempts — successes and failures</p>
+            </div>
+            <button
+              onClick={async () => {
+                if (!showLog) {
+                  setLoadingLog(true)
+                  try {
+                    const logs = await getActivityLog(100)
+                    setActivityLog(logs)
+                  } catch {
+                    setActivityLog([])
+                  }
+                  setLoadingLog(false)
+                }
+                setShowLog(!showLog)
+              }}
+              className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700"
+            >
+              {showLog ? 'Hide Log' : 'View Log'}
+            </button>
+          </div>
+
+          {showLog && (
+            loadingLog ? (
+              <div className="text-sm text-gray-500 py-4">Loading activity log...</div>
+            ) : activityLog.length === 0 ? (
+              <div className="text-sm text-gray-500 py-4">No activity logged yet. Logs will appear after draft orders are created.</div>
+            ) : (
+              <div className="border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Time</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Status</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Company / Customer</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Type</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-600">Items</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Order</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {activityLog.map((log) => (
+                      <tr key={log.id}>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                          {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                            log.status === 'success'
+                              ? 'bg-green-100 text-green-800'
+                              : log.status === 'failed'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {log.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-gray-900">
+                          {log.companyName || log.customerName || '-'}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                            log.isNewCustomer ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {log.isNewCustomer ? 'New Customer' : 'B2B'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right text-gray-600">{log.itemCount ?? '-'}</td>
+                        <td className="px-3 py-2 text-gray-900 font-medium">{log.orderName || '-'}</td>
+                        <td className="px-3 py-2 text-gray-500 text-xs max-w-[200px] truncate" title={log.error || ''}>
+                          {log.error || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
         </div>
       </main>
     </div>

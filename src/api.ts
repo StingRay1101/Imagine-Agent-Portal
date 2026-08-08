@@ -167,3 +167,23 @@ export async function updateAdminSettings(settings: AdminSettings): Promise<Admi
 export async function getShopifyTags(): Promise<string[]> {
   return adminFetch('/admin/tags')
 }
+
+export interface ActivityLogEntry {
+  id: string
+  timestamp: string
+  action: string
+  status: string
+  companyName?: string
+  customerName?: string
+  isNewCustomer?: boolean
+  companyLocationId?: string
+  itemCount?: number
+  shippingMethod?: string
+  orderId?: string
+  orderName?: string
+  error?: string
+}
+
+export async function getActivityLog(limit = 50): Promise<ActivityLogEntry[]> {
+  return adminFetch(`/admin/logs?limit=${limit}`)
+}
