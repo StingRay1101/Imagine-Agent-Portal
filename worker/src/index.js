@@ -263,39 +263,32 @@ async function handleSearchProducts(env, url) {
     searchQuery += ` AND (${tagFilter})`;
   }
 
-  // Look up Online Store publication ID for filtering
-  const publicationId = await getOnlineStorePublicationId(env);
-
-  // Product query — include publishedOnPublication if we have the publication ID
-  const gqlBasic = publicationId
-    ? `
-      query SearchProducts($query: String!, $publicationId: ID!) {
-        products(first: 20, query: $query) {
-          edges {
-            node {
-              id
-              title
-              tags
-              publishedOnPublication(publicationId: $publicationId)
-              images(first: 1) {
-                edges {
-                  node {
-                    url
-                  }
+  const gqlBasic = `
+    query SearchProducts($query: String!) {
+      products(first: 20, query: $query) {
+        edges {
+          node {
+            id
+            title
+            tags
+            images(first: 1) {
+              edges {
+                node {
+                  url
                 }
               }
-              variants(first: 50) {
-                edges {
-                  node {
-                    id
-                    title
-                    sku
-                    price
-                    compareAtPrice
-                    inventoryQuantity
-                    image {
-                      url
-                    }
+            }
+            variants(first: 50) {
+              edges {
+                node {
+                  id
+                  title
+                  sku
+                  price
+                  compareAtPrice
+                  inventoryQuantity
+                  image {
+                    url
                   }
                 }
               }
@@ -303,55 +296,16 @@ async function handleSearchProducts(env, url) {
           }
         }
       }
-    `
-    : `
-      query SearchProducts($query: String!) {
-        products(first: 20, query: $query) {
-          edges {
-            node {
-              id
-              title
-              tags
-              images(first: 1) {
-                edges {
-                  node {
-                    url
-                  }
-                }
-              }
-              variants(first: 50) {
-                edges {
-                  node {
-                    id
-                    title
-                    sku
-                    price
-                    compareAtPrice
-                    inventoryQuantity
-                    image {
-                      url
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    `;
+    }
+  `;
 
-  const variables = publicationId
-    ? { query: searchQuery, publicationId }
-    : { query: searchQuery };
+  const variables = { query: searchQuery };
 
   const data = await shopifyGraphQL(env, gqlBasic, variables);
   const variants = [];
 
   for (const prodEdge of data.products.edges) {
     const product = prodEdge.node;
-
-    // Skip products not published on the Online Store
-    if (publicationId && product.publishedOnPublication === false) continue;
 
     const productImage = product.images?.edges?.[0]?.node?.url || null;
     const productTags = product.tags || [];
