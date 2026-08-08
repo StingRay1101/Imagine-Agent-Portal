@@ -255,7 +255,7 @@ async function handleSearchProducts(env, url) {
   const adminSettings = await getAdminSettings(env);
 
   const baseQuery = query.includes(':') ? query : `title:*${query}* OR sku:${query}*`;
-  let searchQuery = `(${baseQuery}) AND status:active`;
+  let searchQuery = `(${baseQuery}) AND (status:active OR status:unlisted)`;
 
   // Add tag filter if admin has configured product tags
   if (adminSettings.productTags && adminSettings.productTags.length > 0) {
