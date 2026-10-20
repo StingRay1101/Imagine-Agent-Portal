@@ -1,4 +1,4 @@
-const SHOPIFY_API_VERSION = '2024-10';
+const SHOPIFY_API_VERSION = '2025-01';
 const SOUTHPORT_LOCATION_ID = 'gid://shopify/Location/11565400107';
 
 let cachedToken = null;
@@ -336,49 +336,75 @@ async function handleSearchProducts(env, url) {
     }
   }
 
-  // Get Southport-specific inventory for the found variants
+  // Get Southport-specific inventory by paginating through all levels at the location
   try {
     if (variants.length > 0) {
-      const variantIds = variants.map((v) => v.id);
-      const invGql = `
-        query GetVariantInventory($ids: [ID!]!, $locationId: ID!) {
-          nodes(ids: $ids) {
-            ... on ProductVariant {
-              id
-              inventoryItem {
-                inventoryLevel(locationId: $locationId) {
-                  quantities(names: ["available", "incoming"]) {
-                    name
-                    quantity
+      const variantIdSet = new Set(variants.map((v) => v.id));
+      const southportStock = {};
+      const southportIncoming = {};
+      let cursor = null;
+      let hasNextPage = true;
+      let foundCount = 0;
+      const maxPages = 10;
+      let page = 0;
+
+      while (hasNextPage && foundCount < variantIdSet.size && page < maxPages) {
+        const invGql = `
+          query GetInventoryAtLocation($locationId: ID!, $cursor: String) {
+            location(id: $locationId) {
+              inventoryLevels(first: 250, after: $cursor) {
+                edges {
+                  node {
+                    item {
+                      variant {
+                        id
+                      }
+                    }
+                    quantities(names: ["available", "incoming"]) {
+                      name
+                      quantity
+                    }
                   }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
                 }
               }
             }
           }
-        }
-      `;
-      const invData = await shopifyGraphQL(env, invGql, {
-        ids: variantIds,
-        locationId: SOUTHPORT_LOCATION_ID,
-      });
+        `;
+        const invData = await shopifyGraphQL(env, invGql, {
+          locationId: SOUTHPORT_LOCATION_ID,
+          cursor,
+        });
+        const levels = invData.location?.inventoryLevels;
+        if (!levels) break;
 
-      const stockMap = {};
-      const incomingMap = {};
-      for (const node of (invData.nodes || [])) {
-        if (!node?.id) continue;
-        const level = node.inventoryItem?.inventoryLevel;
-        if (!level) continue;
-        const avail = level.quantities?.find((q) => q.name === 'available');
-        const incoming = level.quantities?.find((q) => q.name === 'incoming');
-        if (avail) stockMap[node.id] = avail.quantity;
-        if (incoming) incomingMap[node.id] = incoming.quantity;
+        for (const edge of levels.edges) {
+          const variantId = edge.node.item?.variant?.id;
+          if (!variantId) continue;
+          if (variantIdSet.has(variantId)) {
+            const available = edge.node.quantities?.find((q) => q.name === 'available');
+            const incoming = edge.node.quantities?.find((q) => q.name === 'incoming');
+            if (available) southportStock[variantId] = available.quantity;
+            if (incoming) southportIncoming[variantId] = incoming.quantity;
+            if (!(variantId in southportStock)) southportStock[variantId] = 0;
+            foundCount++;
+          }
+        }
+
+        hasNextPage = levels.pageInfo.hasNextPage;
+        cursor = levels.pageInfo.endCursor;
+        page++;
       }
 
+      // Update all variants with Southport-specific stock
       for (const variant of variants) {
-        const qty = stockMap[variant.id] ?? 0;
+        const qty = southportStock[variant.id] ?? 0;
         variant.inventoryQuantity = qty;
         variant.available = qty > 0;
-        variant.incomingQuantity = incomingMap[variant.id] || 0;
+        variant.incomingQuantity = southportIncoming[variant.id] || 0;
       }
     }
   } catch (err) {
