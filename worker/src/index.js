@@ -1,7 +1,6 @@
 const SHOPIFY_API_VERSION = '2024-10';
 const SOUTHPORT_LOCATION_ID = 'gid://shopify/Location/11565400107';
-const INVENTORY_SAFETY_BUFFER = 3;
-const WORKER_VERSION = 'v7-debug';
+const WORKER_VERSION = 'v8-southport-only';
 
 let cachedToken = null;
 let tokenExpiry = 0;
@@ -348,7 +347,6 @@ async function handleSearchProducts(env, url) {
                   sku
                   price
                   compareAtPrice
-                  inventoryQuantity
                   image {
                     url
                   }
@@ -382,8 +380,6 @@ async function handleSearchProducts(env, url) {
 
     for (const varEdge of product.variants.edges) {
       const v = varEdge.node;
-      const rawQty = v.inventoryQuantity ?? 0;
-      const bufferedQty = Math.max(0, rawQty - INVENTORY_SAFETY_BUFFER);
 
       variants.push({
         id: v.id,
@@ -394,63 +390,85 @@ async function handleSearchProducts(env, url) {
         price: v.price,
         compareAtPrice: v.compareAtPrice,
         imageUrl: v.image?.url || productImage,
-        inventoryQuantity: bufferedQty,
-        available: bufferedQty > 0,
+        inventoryQuantity: 0,
+        available: false,
         discountPercentage,
       });
     }
   }
 
-  // Try to get Southport-specific inventory (requires read_inventory scope)
+  // Get Southport Warehouse inventory with pagination
   try {
-    const inventoryItemIds = variants.map((v) => v.id);
-    if (inventoryItemIds.length > 0) {
-      const invGql = `
-        query GetInventoryAtLocation($locationId: ID!) {
-          location(id: $locationId) {
-            inventoryLevels(first: 100) {
-              edges {
-                node {
-                  item {
-                    variant {
-                      id
+    if (variants.length > 0) {
+      const variantIdSet = new Set(variants.map((v) => v.id));
+      const southportStock = {};
+      const southportIncoming = {};
+      let cursor = null;
+      let hasNextPage = true;
+      let foundCount = 0;
+      const maxPages = 10;
+      let page = 0;
+
+      while (hasNextPage && foundCount < variantIdSet.size && page < maxPages) {
+        const invGql = `
+          query GetInventoryAtLocation($locationId: ID!, $cursor: String) {
+            location(id: $locationId) {
+              inventoryLevels(first: 250, after: $cursor) {
+                edges {
+                  node {
+                    item {
+                      variant {
+                        id
+                      }
+                    }
+                    quantities(names: ["available", "incoming"]) {
+                      name
+                      quantity
                     }
                   }
-                  quantities(names: ["available", "incoming"]) {
-                    name
-                    quantity
-                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
                 }
               }
             }
           }
-        }
-      `;
-      const invData = await shopifyGraphQL(env, invGql, { locationId: SOUTHPORT_LOCATION_ID });
-      const levels = invData.location?.inventoryLevels?.edges || [];
+        `;
+        const invData = await shopifyGraphQL(env, invGql, {
+          locationId: SOUTHPORT_LOCATION_ID,
+          cursor,
+        });
+        const levels = invData.location?.inventoryLevels;
+        if (!levels) break;
 
-      const southportStock = {};
-      const southportIncoming = {};
-      for (const edge of levels) {
-        const variantId = edge.node.item?.variant?.id;
-        if (!variantId) continue;
-        const available = edge.node.quantities?.find((q) => q.name === 'available');
-        const incoming = edge.node.quantities?.find((q) => q.name === 'incoming');
-        if (available) southportStock[variantId] = available.quantity;
-        if (incoming) southportIncoming[variantId] = incoming.quantity;
+        for (const edge of levels.edges) {
+          const variantId = edge.node.item?.variant?.id;
+          if (!variantId) continue;
+          if (variantIdSet.has(variantId)) {
+            const available = edge.node.quantities?.find((q) => q.name === 'available');
+            const incoming = edge.node.quantities?.find((q) => q.name === 'incoming');
+            if (available) southportStock[variantId] = available.quantity;
+            if (incoming) southportIncoming[variantId] = incoming.quantity;
+            if (!(variantId in southportStock)) southportStock[variantId] = 0;
+            foundCount++;
+          }
+        }
+
+        hasNextPage = levels.pageInfo.hasNextPage;
+        cursor = levels.pageInfo.endCursor;
+        page++;
       }
 
       for (const variant of variants) {
-        if (variant.id in southportStock) {
-          const buffered = Math.max(0, southportStock[variant.id] - INVENTORY_SAFETY_BUFFER);
-          variant.inventoryQuantity = buffered;
-          variant.available = buffered > 0;
-        }
+        const qty = southportStock[variant.id] ?? 0;
+        variant.inventoryQuantity = qty;
+        variant.available = qty > 0;
         variant.incomingQuantity = southportIncoming[variant.id] || 0;
       }
     }
   } catch (err) {
-    console.log('Southport inventory lookup skipped (likely missing read_inventory scope):', err.message);
+    console.log('Southport inventory lookup failed:', err.message);
   }
 
   return json(variants);
