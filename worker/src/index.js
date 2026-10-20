@@ -1,6 +1,5 @@
 const SHOPIFY_API_VERSION = '2024-10';
 const SOUTHPORT_LOCATION_ID = 'gid://shopify/Location/11565400107';
-const INVENTORY_SAFETY_BUFFER = 3;
 
 let cachedToken = null;
 let tokenExpiry = 0;
@@ -286,7 +285,6 @@ async function handleSearchProducts(env, url) {
                   sku
                   price
                   compareAtPrice
-                  inventoryQuantity
                   image {
                     url
                   }
@@ -321,8 +319,6 @@ async function handleSearchProducts(env, url) {
 
     for (const varEdge of product.variants.edges) {
       const v = varEdge.node;
-      const rawQty = v.inventoryQuantity ?? 0;
-      const bufferedQty = Math.max(0, rawQty - INVENTORY_SAFETY_BUFFER);
 
       variants.push({
         id: v.id,
@@ -333,14 +329,14 @@ async function handleSearchProducts(env, url) {
         price: v.price,
         compareAtPrice: v.compareAtPrice,
         imageUrl: v.image?.url || productImage,
-        inventoryQuantity: bufferedQty,
-        available: bufferedQty > 0,
+        inventoryQuantity: 0,
+        available: false,
         discountPercentage,
       });
     }
   }
 
-  // Try to get Southport-specific inventory (requires read_inventory scope)
+  // Get Southport-specific inventory
   try {
     const inventoryItemIds = variants.map((v) => v.id);
     if (inventoryItemIds.length > 0) {
@@ -380,19 +376,16 @@ async function handleSearchProducts(env, url) {
         if (incoming) southportIncoming[variantId] = incoming.quantity;
       }
 
-      // Update variants with Southport-specific stock and incoming data
+      // Update all variants with Southport-specific stock
       for (const variant of variants) {
-        if (variant.id in southportStock) {
-          const buffered = Math.max(0, southportStock[variant.id] - INVENTORY_SAFETY_BUFFER);
-          variant.inventoryQuantity = buffered;
-          variant.available = buffered > 0;
-        }
+        const qty = southportStock[variant.id] ?? 0;
+        variant.inventoryQuantity = qty;
+        variant.available = qty > 0;
         variant.incomingQuantity = southportIncoming[variant.id] || 0;
       }
     }
   } catch (err) {
-    // read_inventory scope not available — stick with total inventory
-    console.log('Southport inventory lookup skipped (likely missing read_inventory scope):', err.message);
+    console.log('Southport inventory lookup failed:', err.message);
   }
 
   return json(variants);
