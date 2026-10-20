@@ -1,4 +1,4 @@
-const SHOPIFY_API_VERSION = '2025-01';
+const SHOPIFY_API_VERSION = '2024-10';
 const SOUTHPORT_LOCATION_ID = 'gid://shopify/Location/11565400107';
 
 let cachedToken = null;
