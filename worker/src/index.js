@@ -263,7 +263,7 @@ async function handleSearchProducts(env, url) {
   }
 
   const gqlBasic = `
-    query SearchProducts($query: String!) {
+    query SearchProducts($query: String!, $locationId: ID!) {
       products(first: 20, query: $query) {
         edges {
           node {
@@ -288,6 +288,14 @@ async function handleSearchProducts(env, url) {
                   image {
                     url
                   }
+                  inventoryItem {
+                    inventoryLevel(locationId: $locationId) {
+                      quantities(names: ["available", "incoming"]) {
+                        name
+                        quantity
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -297,7 +305,7 @@ async function handleSearchProducts(env, url) {
     }
   `;
 
-  const variables = { query: searchQuery };
+  const variables = { query: searchQuery, locationId: SOUTHPORT_LOCATION_ID };
 
   const data = await shopifyGraphQL(env, gqlBasic, variables);
   const variants = [];
@@ -319,6 +327,9 @@ async function handleSearchProducts(env, url) {
 
     for (const varEdge of product.variants.edges) {
       const v = varEdge.node;
+      const invLevel = v.inventoryItem?.inventoryLevel;
+      const availableQty = invLevel?.quantities?.find((q) => q.name === 'available')?.quantity ?? 0;
+      const incomingQty = invLevel?.quantities?.find((q) => q.name === 'incoming')?.quantity ?? 0;
 
       variants.push({
         id: v.id,
@@ -329,63 +340,12 @@ async function handleSearchProducts(env, url) {
         price: v.price,
         compareAtPrice: v.compareAtPrice,
         imageUrl: v.image?.url || productImage,
-        inventoryQuantity: 0,
-        available: false,
+        inventoryQuantity: availableQty,
+        available: availableQty > 0,
+        incomingQuantity: incomingQty,
         discountPercentage,
       });
     }
-  }
-
-  // Get Southport-specific inventory
-  try {
-    const inventoryItemIds = variants.map((v) => v.id);
-    if (inventoryItemIds.length > 0) {
-      const invGql = `
-        query GetInventoryAtLocation($locationId: ID!) {
-          location(id: $locationId) {
-            inventoryLevels(first: 100) {
-              edges {
-                node {
-                  item {
-                    variant {
-                      id
-                    }
-                  }
-                  quantities(names: ["available", "incoming"]) {
-                    name
-                    quantity
-                  }
-                }
-              }
-            }
-          }
-        }
-      `;
-      const invData = await shopifyGraphQL(env, invGql, { locationId: SOUTHPORT_LOCATION_ID });
-      const levels = invData.location?.inventoryLevels?.edges || [];
-
-      // Build maps of variantId -> available/incoming quantity at Southport
-      const southportStock = {};
-      const southportIncoming = {};
-      for (const edge of levels) {
-        const variantId = edge.node.item?.variant?.id;
-        if (!variantId) continue;
-        const available = edge.node.quantities?.find((q) => q.name === 'available');
-        const incoming = edge.node.quantities?.find((q) => q.name === 'incoming');
-        if (available) southportStock[variantId] = available.quantity;
-        if (incoming) southportIncoming[variantId] = incoming.quantity;
-      }
-
-      // Update all variants with Southport-specific stock
-      for (const variant of variants) {
-        const qty = southportStock[variant.id] ?? 0;
-        variant.inventoryQuantity = qty;
-        variant.available = qty > 0;
-        variant.incomingQuantity = southportIncoming[variant.id] || 0;
-      }
-    }
-  } catch (err) {
-    console.log('Southport inventory lookup failed:', err.message);
   }
 
   return json(variants);
