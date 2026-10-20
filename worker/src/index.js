@@ -1,16 +1,15 @@
 const SHOPIFY_API_VERSION = '2024-10';
 const SOUTHPORT_LOCATION_ID = 'gid://shopify/Location/11565400107';
 const INVENTORY_SAFETY_BUFFER = 3;
+const WORKER_VERSION = 'v7-debug';
 
 let cachedToken = null;
 let tokenExpiry = 0;
 let cachedOnlineStorePubId = null;
 
 async function getAccessToken(env) {
-  // Use direct access token if available (simplest approach)
   if (env.SHOPIFY_ACCESS_TOKEN) return env.SHOPIFY_ACCESS_TOKEN;
 
-  // Fallback to client credentials OAuth
   const now = Date.now();
   if (cachedToken && now < tokenExpiry) return cachedToken;
 
@@ -142,7 +141,7 @@ async function getOnlineStorePublicationId(env) {
 // --- Route Handlers ---
 
 async function handlePing() {
-  return json({ ok: true });
+  return json({ ok: true, version: WORKER_VERSION });
 }
 
 async function handleDebugAuth(env) {
@@ -172,6 +171,71 @@ async function handleDebugAuth(env) {
   } catch (err) {
     return json({ debug: true, error: err.message });
   }
+}
+
+async function handleDebugInventory(env) {
+  const result = { version: WORKER_VERSION, apiVersion: SHOPIFY_API_VERSION };
+
+  try {
+    const gql = `
+      query {
+        products(first: 3, query: "title:*fifi* AND (status:active OR status:unlisted)") {
+          edges {
+            node {
+              title
+              variants(first: 3) {
+                edges {
+                  node {
+                    id
+                    title
+                    sku
+                    inventoryQuantity
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+    const data = await shopifyGraphQL(env, gql);
+    result.productQuery = data;
+  } catch (err) {
+    result.productQueryError = err.message;
+  }
+
+  try {
+    const invGql = `
+      query {
+        location(id: "${SOUTHPORT_LOCATION_ID}") {
+          name
+          inventoryLevels(first: 5) {
+            edges {
+              node {
+                item {
+                  variant {
+                    id
+                    sku
+                    displayName
+                  }
+                }
+                quantities(names: ["available", "incoming"]) {
+                  name
+                  quantity
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+    const invData = await shopifyGraphQL(env, invGql);
+    result.locationQuery = invData;
+  } catch (err) {
+    result.locationQueryError = err.message;
+  }
+
+  return json(result);
 }
 
 async function handleSearchCompanies(env, url) {
@@ -251,13 +315,11 @@ async function handleSearchProducts(env, url) {
   const query = url.searchParams.get('q') || '';
   if (!query) return json([]);
 
-  // Load admin settings for tag filtering and discounts
   const adminSettings = await getAdminSettings(env);
 
   const baseQuery = query.includes(':') ? query : `title:*${query}* OR sku:${query}*`;
   let searchQuery = `(${baseQuery}) AND (status:active OR status:unlisted)`;
 
-  // Add tag filter if admin has configured product tags
   if (adminSettings.productTags && adminSettings.productTags.length > 0) {
     const tagFilter = adminSettings.productTags.map((t) => `tag:'${t}'`).join(' OR ');
     searchQuery += ` AND (${tagFilter})`;
@@ -310,7 +372,6 @@ async function handleSearchProducts(env, url) {
     const productImage = product.images?.edges?.[0]?.node?.url || null;
     const productTags = product.tags || [];
 
-    // Check if any active sale applies to this product
     let discountPercentage = 0;
     const activeSales = adminSettings.sales?.filter((s) => s.active) || [];
     for (const sale of activeSales) {
@@ -368,7 +429,6 @@ async function handleSearchProducts(env, url) {
       const invData = await shopifyGraphQL(env, invGql, { locationId: SOUTHPORT_LOCATION_ID });
       const levels = invData.location?.inventoryLevels?.edges || [];
 
-      // Build maps of variantId -> available/incoming quantity at Southport
       const southportStock = {};
       const southportIncoming = {};
       for (const edge of levels) {
@@ -380,7 +440,6 @@ async function handleSearchProducts(env, url) {
         if (incoming) southportIncoming[variantId] = incoming.quantity;
       }
 
-      // Update variants with Southport-specific stock and incoming data
       for (const variant of variants) {
         if (variant.id in southportStock) {
           const buffered = Math.max(0, southportStock[variant.id] - INVENTORY_SAFETY_BUFFER);
@@ -391,7 +450,6 @@ async function handleSearchProducts(env, url) {
       }
     }
   } catch (err) {
-    // read_inventory scope not available — stick with total inventory
     console.log('Southport inventory lookup skipped (likely missing read_inventory scope):', err.message);
   }
 
@@ -472,7 +530,6 @@ async function handleCreateDraftOrder(env, request) {
 
   const noteLines = [];
 
-  // If new customer, format their details into the notes
   if (newCustomer) {
     noteLines.push('--- NEW CUSTOMER DETAILS ---');
     noteLines.push(`Stockist First Name: ${newCustomer.firstName || ''}`);
@@ -521,7 +578,6 @@ async function handleCreateDraftOrder(env, request) {
     tags: newCustomer ? ['Sales Agent App', 'New Customer'] : ['Sales Agent App'],
   };
 
-  // If existing B2B company, attach the purchasing entity
   if (companyLocationId) {
     const lookupGql = `
       query LookupLocation($locationId: ID!) {
@@ -565,7 +621,6 @@ async function handleCreateDraftOrder(env, request) {
     const companyId = locationData.company.id;
     let companyContactId = locationData.roleAssignments?.edges?.[0]?.node?.companyContact?.id;
 
-    // If no role assignment exists at this location, auto-assign one
     if (!companyContactId) {
       const contact = locationData.company.contacts?.edges?.[0]?.node;
       const role = locationData.company.contactRoles?.edges?.[0]?.node;
@@ -617,7 +672,6 @@ async function handleCreateDraftOrder(env, request) {
     };
   }
 
-  // If new customer, set shipping address on the draft order
   if (newCustomer) {
     const addressParts = [newCustomer.streetAddress];
     if (newCustomer.shopNumber) addressParts.unshift(newCustomer.shopNumber);
@@ -790,7 +844,6 @@ async function handleAdminUpdateSettings(env, request) {
 }
 
 async function handleAdminGetTags(env) {
-  // Fetch all unique tags from Shopify products
   const gql = `
     query {
       products(first: 100, query: "status:active") {
@@ -824,8 +877,9 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (path === '/api/health') return json({ status: 'ok' });
+    if (path === '/api/health') return json({ status: 'ok', version: WORKER_VERSION });
     if (path === '/api/debug-auth') return await handleDebugAuth(env);
+    if (path === '/api/debug-inventory') return await handleDebugInventory(env);
 
     // Admin routes (separate auth)
     if (path.startsWith('/api/admin/')) {
